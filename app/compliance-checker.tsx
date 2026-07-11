@@ -147,6 +147,64 @@ const examples = [
   "Internal AI governance policy with AIMS scope, roles, risk assessment, human oversight, incident response, model monitoring, audit cadence, and corrective action workflow.",
 ];
 
+const officialSources: Array<{
+  id: FrameworkId;
+  authority: string;
+  title: string;
+  url: string;
+  domain: string;
+  evidenceTerms: string[];
+}> = [
+  {
+    id: "euai",
+    authority: "EUR-Lex",
+    title: "Regulation (EU) 2024/1689, Artificial Intelligence Act",
+    url: "https://eur-lex.europa.eu/eli/reg/2024/1689/oj",
+    domain: "eur-lex.europa.eu",
+    evidenceTerms: ["regulation (eu) 2024/1689", "artificial intelligence act", "high-risk", "human oversight", "conformity assessment"],
+  },
+  {
+    id: "gdpr",
+    authority: "EUR-Lex",
+    title: "Regulation (EU) 2016/679, General Data Protection Regulation",
+    url: "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+    domain: "eur-lex.europa.eu",
+    evidenceTerms: ["regulation (eu) 2016/679", "gdpr", "lawful basis", "data subject", "automated decision-making"],
+  },
+  {
+    id: "gdpr",
+    authority: "European Data Protection Board",
+    title: "EDPB guidance and opinions on data protection compliance",
+    url: "https://www.edpb.europa.eu/our-work-tools/our-documents_en",
+    domain: "edpb.europa.eu",
+    evidenceTerms: ["edpb", "data protection impact assessment", "profiling", "data subject rights", "automated individual decision-making"],
+  },
+  {
+    id: "nist",
+    authority: "NIST",
+    title: "AI Risk Management Framework",
+    url: "https://www.nist.gov/itl/ai-risk-management-framework",
+    domain: "nist.gov",
+    evidenceTerms: ["nist ai rmf", "govern", "map", "measure", "manage", "trustworthy ai"],
+  },
+  {
+    id: "iso42001",
+    authority: "ISO",
+    title: "ISO/IEC 42001 AI management systems",
+    url: "https://www.iso.org/standard/42001",
+    domain: "iso.org",
+    evidenceTerms: ["iso/iec 42001", "artificial intelligence management system", "aims", "management system", "continual improvement"],
+  },
+  {
+    id: "oecd",
+    authority: "OECD",
+    title: "OECD AI Principles",
+    url: "https://www.oecd.org/en/topics/ai-principles.html",
+    domain: "oecd.org",
+    evidenceTerms: ["oecd ai principles", "human-centred values", "transparency", "robustness", "accountability"],
+  },
+];
+
 function countMatches(text: string, terms: string[]) {
   return terms.reduce((total, term) => {
     return total + (text.includes(term.toLowerCase()) ? 1 : 0);
@@ -265,6 +323,60 @@ export function ComplianceChecker() {
     };
   }, [submittedIncludeSecurity, submittedSelected, sourceText]);
 
+  const officialValidation = useMemo(() => {
+    const submittedHost = (() => {
+      try {
+        return submittedUrl ? new URL(submittedUrl).hostname.replace(/^www\./, "") : "";
+      } catch {
+        return "";
+      }
+    })();
+    const activeFrameworks = new Set(
+      submittedIncludeSecurity
+        ? [...submittedSelected, "soc2" as FrameworkId]
+        : submittedSelected,
+    );
+    const relevantSources = officialSources.filter((source) =>
+      activeFrameworks.has(source.id),
+    );
+    const matches = relevantSources.map((source) => {
+      const officialDomainMatch =
+        submittedHost === source.domain || submittedHost.endsWith(`.${source.domain}`);
+      const matchedTerms = source.evidenceTerms.filter((term) =>
+        sourceText.includes(term.toLowerCase()),
+      );
+
+      return {
+        ...source,
+        officialDomainMatch,
+        matchedTerms,
+        status:
+          officialDomainMatch || matchedTerms.length >= 3
+            ? "Strong source match"
+            : matchedTerms.length > 0
+              ? "Partial source match"
+              : "No direct source evidence",
+      };
+    });
+    const strongCount = matches.filter((match) => match.status === "Strong source match").length;
+    const partialCount = matches.filter((match) => match.status === "Partial source match").length;
+    const confidence = Math.min(
+      96,
+      Math.max(18, Math.round(((strongCount * 2 + partialCount) / Math.max(matches.length * 2, 1)) * 100)),
+    );
+
+    return {
+      matches,
+      confidence,
+      verdict:
+        confidence >= 74
+          ? "Officially grounded"
+          : confidence >= 42
+            ? "Needs official evidence"
+            : "Not source-validated yet",
+    };
+  }, [sourceText, submittedIncludeSecurity, submittedSelected, submittedUrl]);
+
   function toggleFramework(id: FrameworkId) {
     setSelected((current) =>
       current.includes(id)
@@ -290,7 +402,7 @@ export function ComplianceChecker() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f7f4] text-[#121512]">
+    <main className="app-shell min-h-screen text-[#121512]">
       <section className="hero-shell">
         <div className="hero-grid">
           <div className="hero-copy">
@@ -493,6 +605,46 @@ export function ComplianceChecker() {
                       <span>Target: {risk.due}</span>
                     </div>
                   </div>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="official-agent">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Sub-agent validation</p>
+                <h2>Official Validation Agent</h2>
+              </div>
+              <span>{officialValidation.confidence}% source confidence</span>
+            </div>
+            <div className="agent-summary">
+              <strong>{officialValidation.verdict}</strong>
+              <p>
+                This sub-agent checks the submitted URL and pasted document text
+                against official compliance sources and flags where official
+                evidence is missing.
+              </p>
+            </div>
+            <div className="source-list">
+              {officialValidation.matches.map((source) => (
+                <article key={`${source.authority}-${source.title}`} className="source-item">
+                  <div>
+                    <span className={source.status === "Strong source match" ? "source-dot strong" : source.status === "Partial source match" ? "source-dot partial" : "source-dot missing"} />
+                  </div>
+                  <div>
+                    <h3>{source.authority}</h3>
+                    <p>{source.title}</p>
+                    <small>
+                      {source.status}
+                      {source.matchedTerms.length > 0
+                        ? `: ${source.matchedTerms.slice(0, 3).join(", ")}`
+                        : ": no official terms found in submitted text"}
+                    </small>
+                  </div>
+                  <a href={source.url} target="_blank" rel="noreferrer">
+                    Official source
+                  </a>
                 </article>
               ))}
             </div>
