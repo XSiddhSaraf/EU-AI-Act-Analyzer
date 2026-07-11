@@ -168,13 +168,22 @@ export function ComplianceChecker() {
     "nist",
   ]);
   const [includeSecurity, setIncludeSecurity] = useState(true);
+  const [submittedUrl, setSubmittedUrl] = useState(url);
+  const [submittedDocumentText, setSubmittedDocumentText] = useState(documentText);
+  const [submittedSelected, setSubmittedSelected] = useState<FrameworkId[]>(selected);
+  const [submittedIncludeSecurity, setSubmittedIncludeSecurity] = useState(includeSecurity);
+  const [lastRunLabel, setLastRunLabel] = useState("Initial sample check");
 
-  const sourceText = `${url} ${documentText}`.toLowerCase();
+  const sourceText = `${submittedUrl} ${submittedDocumentText}`.toLowerCase();
+  const canRunCheck =
+    mode === "website"
+      ? url.trim().length > 0 || documentText.trim().length > 0
+      : documentText.trim().length > 0;
 
   const assessment = useMemo(() => {
-    const active = includeSecurity
-      ? Array.from(new Set([...selected, "soc2" as FrameworkId]))
-      : selected;
+    const active = submittedIncludeSecurity
+      ? Array.from(new Set([...submittedSelected, "soc2" as FrameworkId]))
+      : submittedSelected;
 
     const frameworkResults = active.map((frameworkId) => {
       const signals = signalMap[frameworkId];
@@ -254,7 +263,7 @@ export function ComplianceChecker() {
             ? "Partially compatible"
             : "Not compatible yet",
     };
-  }, [includeSecurity, selected, sourceText]);
+  }, [submittedIncludeSecurity, submittedSelected, sourceText]);
 
   function toggleFramework(id: FrameworkId) {
     setSelected((current) =>
@@ -270,6 +279,14 @@ export function ComplianceChecker() {
     const reader = new FileReader();
     reader.onload = () => setDocumentText(String(reader.result ?? ""));
     reader.readAsText(file);
+  }
+
+  function runCheck() {
+    setSubmittedUrl(url.trim());
+    setSubmittedDocumentText(documentText.trim());
+    setSubmittedSelected(selected);
+    setSubmittedIncludeSecurity(includeSecurity);
+    setLastRunLabel(`Checked ${mode === "website" ? "website" : "document"} input just now`);
   }
 
   return (
@@ -315,6 +332,7 @@ export function ComplianceChecker() {
                 Based on {assessment.frameworkResults.length} frameworks and{" "}
                 {assessment.detectedRisks.length} active risk findings.
               </p>
+              <p className="run-stamp">{lastRunLabel}</p>
             </div>
           </div>
         </div>
@@ -362,6 +380,21 @@ export function ComplianceChecker() {
                 Example {index + 1}
               </button>
             ))}
+          </div>
+
+          <div className="submit-row">
+            <button
+              className="run-button"
+              disabled={!canRunCheck}
+              onClick={runCheck}
+              type="button"
+            >
+              Run check
+            </button>
+            <p>
+              Results update after you click. Paste the URL, add any policy text
+              you have, then run the review.
+            </p>
           </div>
 
           <div className="framework-box">

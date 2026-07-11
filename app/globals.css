@@ -167,6 +167,13 @@ h1 {
   margin-bottom: 0;
 }
 
+.verdict-panel .run-stamp {
+  color: #bde8ca;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-top: 12px;
+}
+
 .score-ring {
   --score: 70;
   align-items: center;
@@ -332,6 +339,47 @@ textarea {
   color: var(--green-dark);
   font-weight: 800;
   min-height: 38px;
+}
+
+.submit-row {
+  align-items: center;
+  background: #f4f8f2;
+  border: 1px solid #d7e3d4;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(132px, 0.42fr) 1fr;
+  padding: 12px;
+}
+
+.run-button {
+  background: var(--green-dark);
+  border: 1px solid var(--green-dark);
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 900;
+  min-height: 48px;
+  padding: 0 18px;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.run-button:hover {
+  background: #103c29;
+  transform: translateY(-1px);
+}
+
+.run-button:disabled {
+  background: #9ba89b;
+  border-color: #9ba89b;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.submit-row p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin-bottom: 0;
 }
 
 .framework-box {
@@ -615,6 +663,10 @@ textarea {
   }
 
   .example-row {
+    grid-template-columns: 1fr;
+  }
+
+  .submit-row {
     grid-template-columns: 1fr;
   }
 
