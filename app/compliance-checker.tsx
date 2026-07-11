@@ -1,11 +1,42 @@
 "use client";
 
 import type { CSSProperties, ChangeEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type FrameworkId = "euai" | "gdpr" | "iso42001" | "nist" | "oecd" | "soc2";
 type Severity = "Critical" | "High" | "Medium" | "Low";
 type FetchState = "idle" | "loading" | "success" | "error";
+type PlanId = "free" | "pro" | "team";
+
+type UsageState = {
+  plan: PlanId | string;
+  used: number;
+  limit: number;
+  remaining: number | null;
+  unlimited: boolean;
+  degraded: boolean;
+};
+
+type UsageResponse = Partial<{
+  allowed: boolean;
+  plan: string;
+  used: number;
+  limit: number;
+  remaining: number | null;
+  unlimited: boolean;
+  degraded: boolean;
+  reason: string;
+}>;
+
+// Configure these via .env.local (or your host's environment settings) once
+// real billing exists. They fall back to plain mailto links so the paywall
+// is fully functional without any payment provider wired up yet.
+const UPGRADE_URL =
+  (process.env.NEXT_PUBLIC_UPGRADE_URL ?? "").trim() ||
+  "mailto:hello@example.com?subject=Upgrade%20to%20Pro";
+const CONTACT_SALES_URL =
+  (process.env.NEXT_PUBLIC_CONTACT_URL ?? "").trim() ||
+  "mailto:hello@example.com?subject=Team%20plan";
 
 const frameworks: Array<{
   id: FrameworkId;
@@ -254,6 +285,35 @@ export function ComplianceChecker() {
   );
   const [fetchedWebsiteText, setFetchedWebsiteText] = useState("");
   const [fetchedWebsiteTitle, setFetchedWebsiteTitle] = useState("");
+  const [usage, setUsage] = useState<UsageState | null>(null);
+  const [showPaywall, setShowPaywall] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/usage")
+      .then((response) => response.json())
+      .then((data: UsageResponse) => {
+        if (cancelled) return;
+        setUsage({
+          plan: data.plan ?? "free",
+          used: data.used ?? 0,
+          limit: data.limit ?? 3,
+          remaining: data.remaining ?? null,
+          unlimited: Boolean(data.unlimited),
+          degraded: Boolean(data.degraded),
+        });
+      })
+      .catch(() => {
+        // Usage metering is best-effort; the checker still works without it.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const atFreeLimit = Boolean(usage && !usage.unlimited && usage.remaining === 0);
 
   const sourceText = `${submittedUrl} ${submittedDocumentText}`.toLowerCase();
   const canRunCheck =
@@ -422,6 +482,38 @@ export function ComplianceChecker() {
     let websiteText = "";
     let websiteTitle = "";
 
+    let gate: UsageResponse = { allowed: true };
+    try {
+      const gateResponse = await fetch("/api/usage/consume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: mode,
+          label: mode === "website" ? trimmedUrl : "document upload",
+        }),
+      });
+      gate = (await gateResponse.json()) as UsageResponse;
+    } catch {
+      gate = { allowed: true, degraded: true };
+    }
+
+    if (gate.plan !== undefined) {
+      setUsage({
+        plan: gate.plan ?? "free",
+        used: gate.used ?? 0,
+        limit: gate.limit ?? 3,
+        remaining: gate.remaining ?? null,
+        unlimited: Boolean(gate.unlimited),
+        degraded: Boolean(gate.degraded),
+      });
+    }
+
+    if (gate.allowed === false) {
+      setShowPaywall(true);
+      return;
+    }
+    setShowPaywall(false);
+
     setFetchMessage("Checking website content...");
     setFetchState(mode === "website" && trimmedUrl ? "loading" : "idle");
 
@@ -515,6 +607,38 @@ export function ComplianceChecker() {
                 Document
               </button>
             </div>
+
+            {usage ? (
+              <div
+                className={`usage-meter${usage.unlimited ? " unlimited" : ""}${atFreeLimit ? " exhausted" : ""}`}
+                aria-live="polite"
+              >
+                {usage.unlimited ? (
+                  <span>
+                    {usage.plan === "team" ? "Team plan" : "Pro plan"} · Unlimited checks
+                  </span>
+                ) : (
+                  <>
+                    <span>
+                      {Math.min(usage.used, usage.limit)} of {usage.limit} free checks used
+                      {usage.degraded ? " (preview — metering not live yet)" : ""}
+                    </span>
+                    <div className="usage-bar">
+                      <i
+                        style={{
+                          width: `${Math.min(100, (Math.min(usage.used, usage.limit) / usage.limit) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+                {!usage.unlimited ? (
+                  <button type="button" className="usage-upgrade" onClick={() => setShowPaywall(true)}>
+                    Upgrade
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="verdict-panel" aria-live="polite">
@@ -596,15 +720,21 @@ export function ComplianceChecker() {
             <button
               className="run-button"
               disabled={!canRunCheck || fetchState === "loading"}
-              onClick={runCheck}
+              onClick={atFreeLimit ? () => setShowPaywall(true) : runCheck}
               type="button"
             >
-              {fetchState === "loading" ? "Checking..." : "Run check"}
+              {fetchState === "loading"
+                ? "Checking..."
+                : atFreeLimit
+                  ? "View upgrade options"
+                  : "Run check"}
             </button>
             <p>
-              {mode === "website"
-                ? "Results update after the public website is fetched and analyzed."
-                : "Results update from the pasted or uploaded document content."}
+              {atFreeLimit
+                ? "You've used every free check. Upgrade to keep running checks."
+                : mode === "website"
+                  ? "Results update after the public website is fetched and analyzed."
+                  : "Results update from the pasted or uploaded document content."}
             </p>
           </div>
 
@@ -806,6 +936,82 @@ export function ComplianceChecker() {
           </div>
         </section>
       </section>
+
+      {showPaywall ? (
+        <div className="paywall-overlay" role="dialog" aria-modal="true" aria-label="Upgrade plan">
+          <div className="paywall-card">
+            <button
+              type="button"
+              className="paywall-close"
+              onClick={() => setShowPaywall(false)}
+              aria-label="Close upgrade dialog"
+            >
+              ×
+            </button>
+            <p className="eyebrow">
+              {atFreeLimit ? "Free plan limit reached" : "Plans and pricing"}
+            </p>
+            <h2>
+              {atFreeLimit
+                ? `You've used all ${usage?.limit ?? 3} free checks.`
+                : "Check more websites and documents."}
+            </h2>
+            <p className="paywall-copy">
+              Upgrade to keep checking websites and documents against AI
+              governance frameworks with no monthly cap.
+            </p>
+
+            <div className="pricing-grid">
+              <article className="pricing-card">
+                <h3>Free</h3>
+                <p className="price">
+                  $0<small>/mo</small>
+                </p>
+                <ul>
+                  <li>{usage?.limit ?? 3} checks total</li>
+                  <li>All 6 governance frameworks</li>
+                  <li>Risk register &amp; mitigations</li>
+                </ul>
+                <span className="pricing-current">Current plan</span>
+              </article>
+
+              <article className="pricing-card featured">
+                <span className="pricing-badge">Most popular</span>
+                <h3>Pro</h3>
+                <p className="price">
+                  $29<small>/mo</small>
+                </p>
+                <ul>
+                  <li>Unlimited website &amp; document checks</li>
+                  <li>Priority website fetch queue</li>
+                  <li>Priority email support</li>
+                </ul>
+                <a className="pricing-cta" href={UPGRADE_URL} target="_blank" rel="noreferrer">
+                  Upgrade to Pro
+                </a>
+              </article>
+
+              <article className="pricing-card">
+                <h3>Team</h3>
+                <p className="price">Custom</p>
+                <ul>
+                  <li>Everything in Pro</li>
+                  <li>Shared workspace &amp; SSO</li>
+                  <li>API access</li>
+                </ul>
+                <a className="pricing-cta secondary" href={CONTACT_SALES_URL}>
+                  Contact sales
+                </a>
+              </article>
+            </div>
+
+            <p className="paywall-note">
+              Already upgraded? Refresh this page after payment — your plan
+              syncs automatically once it is confirmed.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

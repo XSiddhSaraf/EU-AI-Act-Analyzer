@@ -1,8 +1,12 @@
-# vinext-starter
+# AI Governance Compatibility Checker
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Checks a public website or a pasted/uploaded document against six AI
+governance frameworks (EU AI Act, GDPR, ISO/IEC 42001, NIST AI RMF, OECD AI
+Principles, and optional SOC 2-style security controls), flags risks with
+mitigations, and cross-checks findings against official regulatory sources.
+
+Built on [vinext](https://github.com/cloudflare/vinext) (Next.js API surface
+on Vite/Cloudflare Workers), with Cloudflare D1 + Drizzle for usage metering.
 
 ## Prerequisites
 
@@ -21,11 +25,40 @@ This starter does not use `wrangler.jsonc`.
 ## Included Shape
 
 - edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
+- `.openai/hosting.json` declares the Sites D1 binding (`"d1": "DB"`) used for
+  usage metering; R2 is unused
 - `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
+- `db/schema.ts` defines `usage_events` (one row per check) and
+  `account_plans` (free/pro/team overrides)
+- `examples/d1/` contains an optional, unrelated D1 example surface
 - `drizzle.config.ts` supports local migration generation when needed
+
+## Free Tier & Monetization
+
+Every website or document check is gated through `app/api/usage/consume`:
+
+- **Identity**: the signed-in ChatGPT user's email (`app/chatgpt-auth.ts`) when
+  available, otherwise a persistent anonymous device cookie
+  (`app/lib/usage.ts`).
+- **Free limit**: `FREE_CHECK_LIMIT` in `app/lib/usage.ts` (currently `3`
+  checks). Usage is logged to D1 (`usage_events`) and counted per subject.
+- **Paywall UI**: `app/compliance-checker.tsx` shows a live usage meter and,
+  once the limit is hit, an upgrade modal with Free/Pro/Team pricing cards.
+- **Upgrading a user**: no payment processor is wired up yet. `POST
+  /api/admin/set-plan` (protected by an `ADMIN_TOKEN` env var, sent as the
+  `x-admin-token` header) flips a `subject`'s row in `account_plans` to
+  `pro` or `team`, making their checks unlimited. Wire a real billing
+  webhook (Stripe, etc.) to call the same logic when you add one.
+- **Configuring CTAs**: set `NEXT_PUBLIC_UPGRADE_URL` (e.g. a Stripe Payment
+  Link) and `NEXT_PUBLIC_CONTACT_URL` in `.env.local` — both default to
+  `mailto:` links so the paywall works out of the box.
+- **Reliability**: if D1 isn't provisioned yet (e.g. before the first deploy
+  applies the generated migration), the metering routes fail open — checks
+  stay unlimited and the UI shows a "preview — metering not live yet" note
+  instead of breaking the product.
+
+After changing `db/schema.ts`, run `npm run db:generate` and commit the
+generated `drizzle/` folder; the Sites host applies it on deploy.
 
 ## Workspace Auth Headers
 
@@ -89,7 +122,8 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 - `npm run dev`: start local development
 - `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
+- `npm test`: build the site and verify the build artifacts, the shipped
+  homepage, and the free-tier usage metering wiring
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
 ## Learn More
