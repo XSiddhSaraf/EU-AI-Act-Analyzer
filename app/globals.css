@@ -462,6 +462,46 @@ textarea {
   margin-bottom: 0;
 }
 
+.fetch-status {
+  backdrop-filter: blur(18px);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(17, 43, 32, 0.05);
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.fetch-status strong {
+  color: var(--blue);
+  font-size: 0.9rem;
+}
+
+.fetch-status.success strong {
+  color: var(--green-dark);
+}
+
+.fetch-status.error strong {
+  color: var(--red);
+}
+
+.fetch-status.loading strong {
+  color: var(--amber);
+}
+
+.fetch-status p,
+.fetch-status small {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.fetch-status small {
+  display: block;
+  font-size: 0.78rem;
+}
+
 .framework-box {
   border-top: 1px solid rgba(255, 255, 255, 0.68);
   display: grid;

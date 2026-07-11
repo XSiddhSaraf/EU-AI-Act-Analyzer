@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 type FrameworkId = "euai" | "gdpr" | "iso42001" | "nist" | "oecd" | "soc2";
 type Severity = "Critical" | "High" | "Medium" | "Low";
+type FetchState = "idle" | "loading" | "success" | "error";
 
 const frameworks: Array<{
   id: FrameworkId;
@@ -67,7 +68,7 @@ const signalMap: Record<
     { label: "Data subject rights", terms: ["access request", "erase", "rectification", "data subject"], impact: 14 },
     { label: "DPIA and automated decisioning", terms: ["dpia", "automated decision", "profiling", "meaningful information"], impact: 17 },
     { label: "Retention and minimization", terms: ["retention", "minimization", "delete", "purpose limitation"], impact: 13 },
-    { label: "International transfer safeguards", terms: ["standard contractual clauses", "scc", "transfer", "adequacy"], impact: 10 },
+    { label: "Cookies, tracking, and advertising notice", terms: ["cookie", "tracking", "advertising", "newsletter", "subscribe"], impact: 12 },
   ],
   iso42001: [
     { label: "AI management objectives", terms: ["management system", "policy", "objective", "scope"], impact: 18 },
@@ -88,6 +89,7 @@ const signalMap: Record<
     { label: "Transparency and explainability", terms: ["explainability", "transparency", "notice", "explanation"], impact: 15 },
     { label: "Robustness and safety", terms: ["robust", "safety", "security", "testing"], impact: 15 },
     { label: "Accountability", terms: ["accountability", "owner", "audit", "governance"], impact: 14 },
+    { label: "Public information integrity", terms: ["news", "editorial", "correction", "fact check", "breaking"], impact: 10 },
   ],
   soc2: [
     { label: "Access controls", terms: ["access control", "least privilege", "mfa", "authentication"], impact: 16 },
@@ -95,6 +97,7 @@ const signalMap: Record<
     { label: "Incident response", terms: ["incident response", "breach", "escalation", "runbook"], impact: 15 },
     { label: "Vendor and data retention controls", terms: ["vendor", "subprocessor", "retention", "backup"], impact: 13 },
     { label: "Security testing", terms: ["penetration test", "vulnerability", "encryption", "secure development"], impact: 15 },
+    { label: "Public website security posture", terms: ["https", "login", "account", "app", "advertisement"], impact: 9 },
   ],
 };
 
@@ -138,6 +141,20 @@ const riskPatterns: Array<{
     terms: ["api", "upload", "document", "integration"],
     mitigation:
       "Add encryption, access review, audit logs, incident response, vendor review, and vulnerability management evidence.",
+  },
+  {
+    title: "Cookie, tracking, and advertising disclosures may be incomplete",
+    severity: "Medium",
+    terms: ["cookie", "advertisement", "advertising", "newsletter", "subscribe"],
+    mitigation:
+      "Publish clear cookie categories, ad-tech partners, consent controls, retention periods, and opt-out paths for visitors.",
+  },
+  {
+    title: "Editorial or public-content governance evidence is limited",
+    severity: "Low",
+    terms: ["news", "breaking", "editorial", "article", "video"],
+    mitigation:
+      "Document correction policy, content provenance, moderation escalation, misinformation review, and archive retention controls.",
   },
 ];
 
@@ -231,6 +248,12 @@ export function ComplianceChecker() {
   const [submittedSelected, setSubmittedSelected] = useState<FrameworkId[]>(selected);
   const [submittedIncludeSecurity, setSubmittedIncludeSecurity] = useState(includeSecurity);
   const [lastRunLabel, setLastRunLabel] = useState("Initial sample check");
+  const [fetchState, setFetchState] = useState<FetchState>("idle");
+  const [fetchMessage, setFetchMessage] = useState(
+    "Website content has not been fetched yet.",
+  );
+  const [fetchedWebsiteText, setFetchedWebsiteText] = useState("");
+  const [fetchedWebsiteTitle, setFetchedWebsiteTitle] = useState("");
 
   const sourceText = `${submittedUrl} ${submittedDocumentText}`.toLowerCase();
   const canRunCheck =
@@ -393,9 +416,69 @@ export function ComplianceChecker() {
     reader.readAsText(file);
   }
 
-  function runCheck() {
-    setSubmittedUrl(url.trim());
-    setSubmittedDocumentText(documentText.trim());
+  async function runCheck() {
+    const trimmedUrl = url.trim();
+    const trimmedDocumentText = documentText.trim();
+    let websiteText = "";
+    let websiteTitle = "";
+
+    setFetchMessage("Checking website content...");
+    setFetchState(mode === "website" && trimmedUrl ? "loading" : "idle");
+
+    if (mode === "website" && trimmedUrl) {
+      try {
+        const response = await fetch("/api/fetch-website", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: trimmedUrl }),
+        });
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          status?: number;
+          finalUrl?: string;
+          title?: string;
+          description?: string;
+          text?: string;
+          textLength?: number;
+          error?: string;
+        };
+
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error ?? "Website could not be fetched.");
+        }
+
+        websiteTitle = payload.title ?? "";
+        websiteText = [
+          payload.finalUrl,
+          payload.title,
+          payload.description,
+          payload.text,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        setFetchedWebsiteText(payload.text ?? "");
+        setFetchedWebsiteTitle(websiteTitle);
+        setFetchState("success");
+        setFetchMessage(
+          `Fetched ${Math.min(payload.textLength ?? websiteText.length, 18000).toLocaleString()} characters from ${payload.finalUrl ?? trimmedUrl}.`,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Website could not be fetched.";
+        setFetchedWebsiteText("");
+        setFetchedWebsiteTitle("");
+        setFetchState("error");
+        setFetchMessage(
+          `${message} Paste page or policy text below and run the check again.`,
+        );
+      }
+    } else {
+      setFetchedWebsiteText("");
+      setFetchedWebsiteTitle("");
+      setFetchMessage("Using pasted document text.");
+    }
+
+    setSubmittedUrl(trimmedUrl);
+    setSubmittedDocumentText([websiteText, trimmedDocumentText].filter(Boolean).join(" "));
     setSubmittedSelected(selected);
     setSubmittedIncludeSecurity(includeSecurity);
     setLastRunLabel(`Checked ${mode === "website" ? "website" : "document"} input just now`);
@@ -497,16 +580,33 @@ export function ComplianceChecker() {
           <div className="submit-row">
             <button
               className="run-button"
-              disabled={!canRunCheck}
+              disabled={!canRunCheck || fetchState === "loading"}
               onClick={runCheck}
               type="button"
             >
-              Run check
+              {fetchState === "loading" ? "Checking..." : "Run check"}
             </button>
             <p>
-              Results update after you click. Paste the URL, add any policy text
-              you have, then run the review.
+              Results update after the website is fetched and analyzed. Paste
+              policy text too if the page blocks automated readers.
             </p>
+          </div>
+
+          <div className={`fetch-status ${fetchState}`}>
+            <strong>
+              {fetchState === "success"
+                ? "Website fetched"
+                : fetchState === "error"
+                  ? "Website fetch needs help"
+                  : fetchState === "loading"
+                    ? "Fetching website"
+                    : "Website fetch status"}
+            </strong>
+            <p>{fetchMessage}</p>
+            {fetchedWebsiteTitle ? <small>Page title: {fetchedWebsiteTitle}</small> : null}
+            {fetchedWebsiteText ? (
+              <small>Preview: {fetchedWebsiteText.slice(0, 150)}...</small>
+            ) : null}
           </div>
 
           <div className="framework-box">
