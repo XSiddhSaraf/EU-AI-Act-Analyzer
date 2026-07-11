@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const db = getDb();
+    const db = await getDb();
 
     const planRows = await db
       .select()

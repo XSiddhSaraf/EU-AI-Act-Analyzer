@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   const subject = `user:${email}`;
 
   try {
-    const db = getDb();
+    const db = await getDb();
     await db
       .insert(accountPlans)
       .values({ subject, plan })

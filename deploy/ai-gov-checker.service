@@ -1,0 +1,27 @@
+# systemd unit for the AI Governance Compatibility Checker (self-hosted).
+# Installed to /etc/systemd/system/ai-gov-checker.service by deploy.sh,
+# which replaces __APP_DIR__ and __APP_USER__.
+[Unit]
+Description=AI Governance Compatibility Checker
+After=network.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env.local
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=DATA_DIR=__APP_DIR__/data
+ExecStart=/usr/bin/env npm run start
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=__APP_DIR__
+
+[Install]
+WantedBy=multi-user.target

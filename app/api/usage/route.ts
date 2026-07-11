@@ -15,7 +15,7 @@ export async function GET() {
   let degraded = false;
 
   try {
-    const db = getDb();
+    const db = await getDb();
 
     const usedRows = await db
       .select({ value: sql<number>`count(*)` })

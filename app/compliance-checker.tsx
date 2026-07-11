@@ -629,7 +629,7 @@ export function ComplianceChecker() {
   }
 
   return (
-    <main className="app-shell min-h-screen text-[#121512]">
+    <main className="app-shell min-h-screen">
       <section className="hero-shell">
         <div className="hero-grid">
           <div className="hero-copy">
