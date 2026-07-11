@@ -258,7 +258,7 @@ export function ComplianceChecker() {
   const sourceText = `${submittedUrl} ${submittedDocumentText}`.toLowerCase();
   const canRunCheck =
     mode === "website"
-      ? url.trim().length > 0 || documentText.trim().length > 0
+      ? url.trim().length > 0
       : documentText.trim().length > 0;
 
   const assessment = useMemo(() => {
@@ -477,8 +477,10 @@ export function ComplianceChecker() {
       setFetchMessage("Using pasted document text.");
     }
 
-    setSubmittedUrl(trimmedUrl);
-    setSubmittedDocumentText([websiteText, trimmedDocumentText].filter(Boolean).join(" "));
+    setSubmittedUrl(mode === "website" ? trimmedUrl : "");
+    setSubmittedDocumentText(
+      mode === "website" ? websiteText : trimmedDocumentText,
+    );
     setSubmittedSelected(selected);
     setSubmittedIncludeSecurity(includeSecurity);
     setLastRunLabel(`Checked ${mode === "website" ? "website" : "document"} input just now`);
@@ -539,43 +541,56 @@ export function ComplianceChecker() {
             <span>1</span>
             <div>
               <h2>Source to check</h2>
-              <p>Paste a URL, document text, or upload a plain-text file.</p>
+              <p>
+                {mode === "website"
+                  ? "Enter one public website URL for analysis."
+                  : "Paste text or upload one plain-text document."}
+              </p>
             </div>
           </div>
 
           {mode === "website" ? (
-            <label className="field">
-              <span>Website URL</span>
-              <input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://company.com/ai-policy"
-              />
-            </label>
-          ) : null}
+            <div className="intake-group website-intake">
+              <label className="field">
+                <span>Website URL</span>
+                <input
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="https://company.com/ai-policy"
+                  inputMode="url"
+                />
+              </label>
+              <p className="input-note">
+                The checker reads the public page content from this URL. It does
+                not upload or use a document in Website mode.
+              </p>
+            </div>
+          ) : (
+            <div className="intake-group document-intake">
+              <label className="field">
+                <span>Document text</span>
+                <textarea
+                  value={documentText}
+                  onChange={(event) => setDocumentText(event.target.value)}
+                  placeholder="Paste AI policy, DPIA, model card, privacy notice, or product documentation..."
+                />
+              </label>
 
-          <label className="field">
-            <span>{mode === "website" ? "Page or policy text" : "Document text"}</span>
-            <textarea
-              value={documentText}
-              onChange={(event) => setDocumentText(event.target.value)}
-              placeholder="Paste AI policy, DPIA, model card, privacy notice, or product documentation..."
-            />
-          </label>
+              <label className="upload-box">
+                <input type="file" accept=".txt,.md,.csv,.json" onChange={handleFile} />
+                <span>Upload document</span>
+                <small>.txt, .md, .csv, or .json</small>
+              </label>
 
-          <label className="upload-box">
-            <input type="file" accept=".txt,.md,.csv,.json" onChange={handleFile} />
-            <span>Upload text file</span>
-            <small>.txt, .md, .csv, or .json</small>
-          </label>
-
-          <div className="example-row">
-            {examples.map((example, index) => (
-              <button key={example} type="button" onClick={() => setDocumentText(example)}>
-                Example {index + 1}
-              </button>
-            ))}
-          </div>
+              <div className="example-row" aria-label="Document examples">
+                {examples.map((example, index) => (
+                  <button key={example} type="button" onClick={() => setDocumentText(example)}>
+                    Example {index + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="submit-row">
             <button
@@ -587,27 +602,30 @@ export function ComplianceChecker() {
               {fetchState === "loading" ? "Checking..." : "Run check"}
             </button>
             <p>
-              Results update after the website is fetched and analyzed. Paste
-              policy text too if the page blocks automated readers.
+              {mode === "website"
+                ? "Results update after the public website is fetched and analyzed."
+                : "Results update from the pasted or uploaded document content."}
             </p>
           </div>
 
-          <div className={`fetch-status ${fetchState}`}>
-            <strong>
-              {fetchState === "success"
-                ? "Website fetched"
-                : fetchState === "error"
-                  ? "Website fetch needs help"
-                  : fetchState === "loading"
-                    ? "Fetching website"
-                    : "Website fetch status"}
-            </strong>
-            <p>{fetchMessage}</p>
-            {fetchedWebsiteTitle ? <small>Page title: {fetchedWebsiteTitle}</small> : null}
-            {fetchedWebsiteText ? (
-              <small>Preview: {fetchedWebsiteText.slice(0, 150)}...</small>
-            ) : null}
-          </div>
+          {mode === "website" ? (
+            <div className={`fetch-status ${fetchState}`} aria-live="polite">
+              <strong>
+                {fetchState === "success"
+                  ? "Website fetched"
+                  : fetchState === "error"
+                    ? "Website fetch needs help"
+                    : fetchState === "loading"
+                      ? "Fetching website"
+                      : "Website fetch status"}
+              </strong>
+              <p>{fetchMessage}</p>
+              {fetchedWebsiteTitle ? <small>Page title: {fetchedWebsiteTitle}</small> : null}
+              {fetchedWebsiteText ? (
+                <small>Preview: {fetchedWebsiteText.slice(0, 150)}...</small>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="framework-box">
             <div className="panel-heading compact">
