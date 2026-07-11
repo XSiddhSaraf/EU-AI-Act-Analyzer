@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { getChatGPTUser } from "../chatgpt-auth";
+import { getCurrentUser } from "../auth";
 
 export const ANON_COOKIE_NAME = "agc_uid";
 export const FREE_CHECK_LIMIT = 3;
@@ -34,11 +34,12 @@ function parseCookieHeader(cookieHeader: string | null): Record<string, string> 
 }
 
 /**
- * Resolves a stable identity for usage metering: a signed-in ChatGPT user's
- * email when available, otherwise a persistent anonymous device cookie.
+ * Resolves a stable identity for usage metering: a signed-in Google or
+ * Microsoft user's email when available (see app/auth.ts), otherwise a
+ * persistent anonymous device cookie.
  */
 export async function resolveSubject(): Promise<ResolvedSubject> {
-  const user = await getChatGPTUser();
+  const user = await getCurrentUser();
   if (user?.email) {
     return {
       subject: `user:${user.email.trim().toLowerCase()}`,

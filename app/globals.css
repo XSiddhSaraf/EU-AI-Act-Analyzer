@@ -100,6 +100,38 @@ button {
   padding-top: 44px;
 }
 
+.account-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.account-row span {
+  color: #e1f0e5;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.account-row a {
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  color: #ecfff2;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 7px 14px;
+  text-decoration: none;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.account-row a:hover {
+  background: rgba(255, 255, 255, 0.26);
+  transform: translateY(-1px);
+}
+
 .eyebrow {
   color: #52715e;
   font-size: 0.75rem;

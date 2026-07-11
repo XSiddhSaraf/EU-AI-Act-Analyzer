@@ -28,6 +28,24 @@ type UsageResponse = Partial<{
   reason: string;
 }>;
 
+type AuthStatus = "loading" | "signed-out" | "signed-in";
+
+type AuthState = {
+  status: AuthStatus;
+  email: string | null;
+  name: string | null;
+};
+
+type SessionResponse = Partial<{
+  user: Partial<{ email: string | null; name: string | null }>;
+}>;
+
+// Auth.js's own built-in signin/signout pages (server-rendered by
+// app/api/auth/[...auth]/route.ts) handle CSRF tokens and the redirect to
+// Google/Microsoft's consent screen — no custom form needed here.
+const SIGN_IN_HREF = "/api/auth/signin?callbackUrl=%2F";
+const SIGN_OUT_HREF = "/api/auth/signout?callbackUrl=%2F";
+
 // Configure these via .env.local (or your host's environment settings) once
 // real billing exists. They fall back to plain mailto links so the paywall
 // is fully functional without any payment provider wired up yet.
@@ -287,6 +305,38 @@ export function ComplianceChecker() {
   const [fetchedWebsiteTitle, setFetchedWebsiteTitle] = useState("");
   const [usage, setUsage] = useState<UsageState | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [auth, setAuth] = useState<AuthState>({
+    status: "loading",
+    email: null,
+    name: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/auth/session")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: SessionResponse | null) => {
+        if (cancelled) return;
+        const email = data?.user?.email ?? null;
+        setAuth({
+          status: email ? "signed-in" : "signed-out",
+          email,
+          name: data?.user?.name ?? null,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Sign-in is optional (free-tier metering still works via an
+        // anonymous cookie); treat an unreachable/unconfigured auth route
+        // as signed-out rather than breaking the page.
+        setAuth({ status: "signed-out", email: null, name: null });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -583,6 +633,18 @@ export function ComplianceChecker() {
       <section className="hero-shell">
         <div className="hero-grid">
           <div className="hero-copy">
+            {auth.status !== "loading" ? (
+              <div className="account-row" aria-live="polite">
+                {auth.status === "signed-in" ? (
+                  <>
+                    <span>Signed in as {auth.name || auth.email}</span>
+                    <a href={SIGN_OUT_HREF}>Sign out</a>
+                  </>
+                ) : (
+                  <a href={SIGN_IN_HREF}>Sign in with Google or Microsoft</a>
+                )}
+              </div>
+            ) : null}
             <p className="eyebrow">AI governance compatibility workspace</p>
             <h1>Check a website or document against the EU AI Act.</h1>
             <p className="hero-text">
