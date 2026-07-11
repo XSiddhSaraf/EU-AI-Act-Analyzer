@@ -36,13 +36,9 @@ html {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 12% 12%, rgba(102, 86, 189, 0.22), transparent 28%),
-    radial-gradient(circle at 88% 6%, rgba(36, 93, 145, 0.2), transparent 30%),
-    radial-gradient(circle at 70% 76%, rgba(22, 113, 75, 0.18), transparent 34%),
-    linear-gradient(135deg, #edf5ef 0%, #f7faf8 48%, #e7f0f4 100%);
+  background: linear-gradient(145deg, #eef5f0 0%, #f8fbf9 50%, #edf3f7 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
 .app-shell {
@@ -52,34 +48,6 @@ body {
   background-size: 44px 44px;
   overflow: hidden;
   position: relative;
-}
-
-.app-shell::before,
-.app-shell::after {
-  content: "";
-  filter: blur(4px);
-  pointer-events: none;
-  position: absolute;
-  z-index: 0;
-}
-
-.app-shell::before {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.32), rgba(22, 113, 75, 0.08));
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  border-radius: 999px;
-  height: 520px;
-  right: -160px;
-  top: 90px;
-  width: 520px;
-}
-
-.app-shell::after {
-  background: linear-gradient(135deg, rgba(36, 93, 145, 0.18), rgba(255, 255, 255, 0.18));
-  border-radius: 999px;
-  bottom: 130px;
-  height: 360px;
-  left: -120px;
-  width: 360px;
 }
 
 button,
@@ -98,8 +66,8 @@ button {
     radial-gradient(circle at 82% 20%, rgba(189, 232, 202, 0.22), transparent 32%),
     linear-gradient(90deg, transparent 0 49%, rgba(255, 255, 255, 0.08) 49% 51%, transparent 51%);
   color: #fff;
-  min-height: 520px;
-  padding: 34px 24px 56px;
+  min-height: 470px;
+  padding: 30px 24px 64px;
   position: relative;
   z-index: 1;
 }
@@ -120,8 +88,8 @@ button {
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
   gap: 28px;
   margin: 0 auto;
-  max-width: 1180px;
-  min-height: 430px;
+  max-width: 1320px;
+  min-height: 380px;
   align-items: end;
   position: relative;
   z-index: 1;
@@ -129,7 +97,7 @@ button {
 
 .hero-copy {
   max-width: 760px;
-  padding-top: 64px;
+  padding-top: 44px;
 }
 
 .eyebrow {
@@ -153,8 +121,8 @@ p {
 }
 
 h1 {
-  font-size: clamp(2.45rem, 6vw, 5.8rem);
-  line-height: 0.94;
+  font-size: 4.35rem;
+  line-height: 0.98;
   letter-spacing: 0;
   margin-bottom: 22px;
   max-width: 920px;
@@ -262,11 +230,12 @@ h1 {
 
 .workspace {
   display: grid;
-  gap: 22px;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  margin: -34px auto 0;
-  max-width: 1180px;
-  padding: 0 24px 48px;
+  align-items: start;
+  gap: 30px;
+  grid-template-columns: minmax(330px, 390px) minmax(0, 1fr);
+  margin: -40px auto 0;
+  max-width: 1320px;
+  padding: 0 24px 64px;
   position: relative;
   z-index: 2;
 }
@@ -285,6 +254,8 @@ h1 {
   display: grid;
   gap: 18px;
   padding: 22px;
+  position: sticky;
+  top: 18px;
 }
 
 .panel-heading,
@@ -567,10 +538,36 @@ textarea {
   font-size: 0.92rem;
 }
 
+.review-summary {
+  background: linear-gradient(135deg, rgba(15, 79, 55, 0.96), rgba(29, 91, 115, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 18px 34px rgba(12, 47, 34, 0.18);
+  color: #fff;
+  display: grid;
+  gap: 4px;
+  padding: 15px;
+}
+
+.review-summary span,
+.review-summary small {
+  color: #cdebd8;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.review-summary strong {
+  font-size: 1.04rem;
+}
+
 .results-panel {
   display: grid;
   gap: 22px;
   padding: 24px;
+  backdrop-filter: none;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .status-pill {
@@ -588,7 +585,7 @@ textarea {
 .framework-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .framework-card {
@@ -696,6 +693,7 @@ textarea {
 .risk-list {
   display: grid;
   gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .risk-item {
@@ -784,6 +782,7 @@ textarea {
 .source-list {
   display: grid;
   gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .source-item {
@@ -894,8 +893,22 @@ textarea {
     padding-top: 36px;
   }
 
+  h1 {
+    font-size: 3.35rem;
+  }
+
   .workspace {
     margin-top: -24px;
+  }
+
+  .input-panel {
+    position: static;
+  }
+
+  .framework-grid,
+  .risk-list,
+  .source-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -903,6 +916,10 @@ textarea {
   .hero-shell {
     min-height: auto;
     padding: 24px 16px 44px;
+  }
+
+  h1 {
+    font-size: 2.55rem;
   }
 
   .workspace {
@@ -913,6 +930,8 @@ textarea {
   .risk-item,
   .source-item,
   .framework-grid,
+  .risk-list,
+  .source-list,
   .mitigation-board {
     grid-template-columns: 1fr;
   }

@@ -664,6 +664,16 @@ export function ComplianceChecker() {
               </label>
             </div>
           </div>
+
+          <div className="review-summary" aria-live="polite">
+            <span>Review scope</span>
+            <strong>
+              {selected.length + (includeSecurity ? 1 : 0)} frameworks active
+            </strong>
+            <small>
+              {mode === "website" ? "Public website assessment" : "Document assessment"}
+            </small>
+          </div>
         </aside>
 
         <section className="results-panel" aria-label="Compliance results">
