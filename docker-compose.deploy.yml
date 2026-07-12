@@ -1,0 +1,23 @@
+# Image-based deployment for managed Docker hosts (e.g. Hostinger Docker
+# Manager) that only run prebuilt public images — no local build step.
+# The image is published by .github/workflows/docker-publish.yml.
+#
+# Replace the two placeholder secrets before deploying:
+#   AUTH_SECRET:  openssl rand -base64 33
+#   ADMIN_TOKEN:  openssl rand -hex 24
+services:
+  app:
+    image: ghcr.io/xsiddhsaraf/eu-ai-act-analyzer:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      AUTH_SECRET: "REPLACE_WITH_LONG_RANDOM_SECRET"
+      ADMIN_TOKEN: "REPLACE_WITH_ADMIN_TOKEN"
+    volumes:
+      - checker-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  checker-data:

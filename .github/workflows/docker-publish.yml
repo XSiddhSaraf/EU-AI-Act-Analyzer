@@ -1,0 +1,52 @@
+# Builds the Docker image on every push to main and publishes it to GitHub
+# Container Registry as ghcr.io/xsiddhsaraf/eu-ai-act-analyzer. Uses the
+# built-in GITHUB_TOKEN — no secrets to configure.
+#
+# One-time after the first successful run: make the package public so hosts
+# can pull without auth (GitHub profile -> Packages -> eu-ai-act-analyzer ->
+# Package settings -> Change visibility -> Public).
+#
+# Optional: set NEXT_PUBLIC_UPGRADE_URL / NEXT_PUBLIC_CONTACT_URL as
+# repository *variables* (Settings -> Secrets and variables -> Actions ->
+# Variables) — they're inlined into the UI at image build time.
+name: Build and publish Docker image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/xsiddhsaraf/eu-ai-act-analyzer:latest
+            ghcr.io/xsiddhsaraf/eu-ai-act-analyzer:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_UPGRADE_URL=${{ vars.NEXT_PUBLIC_UPGRADE_URL }}
+            NEXT_PUBLIC_CONTACT_URL=${{ vars.NEXT_PUBLIC_CONTACT_URL }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
