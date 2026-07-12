@@ -1,0 +1,36 @@
+# AI Governance Compatibility Checker — self-hosted.
+#
+# Quick start:
+#   1. cp .env.docker.example .env   (then edit the secrets)
+#   2. docker compose up -d --build
+#   3. The app serves on port 3000; put your reverse proxy / TLS in front.
+#
+# Usage metering persists in the named volume `checker-data` (SQLite, WAL).
+services:
+  app:
+    build:
+      context: .
+      args:
+        # Inlined into the UI at build time (Upgrade / Contact sales buttons).
+        NEXT_PUBLIC_UPGRADE_URL: ${NEXT_PUBLIC_UPGRADE_URL:-}
+        NEXT_PUBLIC_CONTACT_URL: ${NEXT_PUBLIC_CONTACT_URL:-}
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      # Required — signs session cookies. Generate: openssl rand -base64 33
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}
+      # Protects POST /api/admin/set-plan (x-admin-token header).
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      # Optional OAuth (app works anonymously without these).
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      AUTH_MICROSOFT_ENTRA_ID_ID: ${AUTH_MICROSOFT_ENTRA_ID_ID:-}
+      AUTH_MICROSOFT_ENTRA_ID_SECRET: ${AUTH_MICROSOFT_ENTRA_ID_SECRET:-}
+    volumes:
+      - checker-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  checker-data:
