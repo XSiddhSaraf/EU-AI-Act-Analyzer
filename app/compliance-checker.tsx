@@ -8,9 +8,11 @@ import {
   ExternalLink,
   FileText,
   Globe,
+  Loader2,
   LogIn,
   LogOut,
   ShieldCheck,
+  Sparkles,
   Upload,
 } from "lucide-react";
 import { animate, motion, useReducedMotion } from "motion/react";
@@ -28,8 +30,8 @@ import { Input } from "./components/ui/input";
 import { Progress } from "./components/ui/progress";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./lib/cn";
+import { sourcesForFrameworks, type FrameworkId } from "./lib/regulatory-sources";
 
-type FrameworkId = "euai" | "gdpr" | "iso42001" | "nist" | "oecd" | "soc2";
 type Severity = "Critical" | "High" | "Medium" | "Low";
 type FetchState = "idle" | "loading" | "success" | "error";
 type PlanId = "free" | "pro" | "team";
@@ -233,68 +235,12 @@ const riskPatterns: Array<{
   },
 ];
 
+const BINARY_UPLOAD_EXTENSIONS = new Set(["pptx", "docx", "pdf"]);
+
 const examples = [
   "AI hiring assistant that screens resumes and ranks candidates. Includes human review, appeal process, bias testing, logging, privacy notice, retention schedule, and vendor monitoring.",
   "Website privacy policy for an AI chatbot. It collects contact details and conversation data, uses subprocessors, provides access and deletion rights, but has no DPIA or EU AI Act risk classification.",
   "Internal AI governance policy with AIMS scope, roles, risk assessment, human oversight, incident response, model monitoring, audit cadence, and corrective action workflow.",
-];
-
-const officialSources: Array<{
-  id: FrameworkId;
-  authority: string;
-  title: string;
-  url: string;
-  domain: string;
-  evidenceTerms: string[];
-}> = [
-  {
-    id: "euai",
-    authority: "EUR-Lex",
-    title: "Regulation (EU) 2024/1689, Artificial Intelligence Act",
-    url: "https://eur-lex.europa.eu/eli/reg/2024/1689/oj",
-    domain: "eur-lex.europa.eu",
-    evidenceTerms: ["regulation (eu) 2024/1689", "artificial intelligence act", "high-risk", "human oversight", "conformity assessment"],
-  },
-  {
-    id: "gdpr",
-    authority: "EUR-Lex",
-    title: "Regulation (EU) 2016/679, General Data Protection Regulation",
-    url: "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
-    domain: "eur-lex.europa.eu",
-    evidenceTerms: ["regulation (eu) 2016/679", "gdpr", "lawful basis", "data subject", "automated decision-making"],
-  },
-  {
-    id: "gdpr",
-    authority: "European Data Protection Board",
-    title: "EDPB guidance and opinions on data protection compliance",
-    url: "https://www.edpb.europa.eu/our-work-tools/our-documents_en",
-    domain: "edpb.europa.eu",
-    evidenceTerms: ["edpb", "data protection impact assessment", "profiling", "data subject rights", "automated individual decision-making"],
-  },
-  {
-    id: "nist",
-    authority: "NIST",
-    title: "AI Risk Management Framework",
-    url: "https://www.nist.gov/itl/ai-risk-management-framework",
-    domain: "nist.gov",
-    evidenceTerms: ["nist ai rmf", "govern", "map", "measure", "manage", "trustworthy ai"],
-  },
-  {
-    id: "iso42001",
-    authority: "ISO",
-    title: "ISO/IEC 42001 AI management systems",
-    url: "https://www.iso.org/standard/42001",
-    domain: "iso.org",
-    evidenceTerms: ["iso/iec 42001", "artificial intelligence management system", "aims", "management system", "continual improvement"],
-  },
-  {
-    id: "oecd",
-    authority: "OECD",
-    title: "OECD AI Principles",
-    url: "https://www.oecd.org/en/topics/ai-principles.html",
-    domain: "oecd.org",
-    evidenceTerms: ["oecd ai principles", "human-centred values", "transparency", "robustness", "accountability"],
-  },
 ];
 
 function countMatches(text: string, terms: string[]) {
@@ -309,6 +255,33 @@ function severityWeight(severity: Severity) {
 
 function severityTone(severity: Severity): "critical" | "high" | "medium" | "low" {
   return severity.toLowerCase() as "critical" | "high" | "medium" | "low";
+}
+
+type SmartAnalysisSuccess = {
+  ok: true;
+  readiness: number;
+  verdict: string;
+  frameworkScores: Record<
+    string,
+    { score: number; status: string; findings: Array<{ label: string; present: boolean; evidence?: string }> }
+  >;
+  risks: Array<{ title: string; severity: Severity; mitigation: string; owner: string; due: string }>;
+  officialMatches: Record<string, { status: string; matchedTerms: string[] }>;
+  officialConfidence: number;
+  knowledgeBaseUpdatedAt: string | null;
+};
+
+type SmartAnalysisApiResponse = SmartAnalysisSuccess | { ok: false; reason?: string };
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "not yet fetched";
+  const diffMinutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hr ago`;
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
 }
 
 /** Tweens a display number toward `target`, honoring prefers-reduced-motion. */
@@ -437,6 +410,9 @@ export function ComplianceChecker() {
     email: null,
     name: null,
   });
+  const [smartResult, setSmartResult] = useState<SmartAnalysisSuccess | null>(null);
+  const [smartStatus, setSmartStatus] = useState<"idle" | "loading" | "success" | "unavailable">("idle");
+  const [smartReason, setSmartReason] = useState("");
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
@@ -592,13 +568,10 @@ export function ComplianceChecker() {
         return "";
       }
     })();
-    const activeFrameworks = new Set(
+    const relevantSources = sourcesForFrameworks(
       submittedIncludeSecurity
         ? [...submittedSelected, "soc2" as FrameworkId]
         : submittedSelected,
-    );
-    const relevantSources = officialSources.filter((source) =>
-      activeFrameworks.has(source.id),
     );
     const matches = relevantSources.map((source) => {
       const officialDomainMatch =
@@ -638,6 +611,59 @@ export function ComplianceChecker() {
     };
   }, [sourceText, submittedIncludeSecurity, submittedSelected, submittedUrl]);
 
+  // Merges the LLM-backed smart analysis (when available) over the static
+  // heuristic above, which always renders first/instantly and remains the
+  // guaranteed fallback if the smart call is slow, disabled, or fails.
+  const displayAssessment = useMemo(() => {
+    const frameworkResults = assessment.frameworkResults.map((fw) => {
+      const smart = smartResult?.frameworkScores[fw.id];
+      return {
+        id: fw.id,
+        label: fw.label,
+        short: fw.short,
+        description: fw.description,
+        score: smart?.score ?? fw.score,
+        status: smart?.status ?? fw.status,
+        found: smart
+          ? smart.findings.map((finding) => ({ label: finding.label, present: finding.present }))
+          : fw.found.map((finding) => ({ label: finding.label, present: finding.present })),
+      };
+    });
+
+    return {
+      frameworkResults,
+      detectedRisks:
+        smartResult && smartResult.risks.length > 0 ? smartResult.risks : assessment.detectedRisks,
+      readiness: smartResult?.readiness ?? assessment.readiness,
+      verdict: smartResult?.verdict ?? assessment.verdict,
+    };
+  }, [assessment, smartResult]);
+
+  const displayOfficialValidation = useMemo(() => {
+    const matches = officialValidation.matches.map((source) => {
+      const smart = smartResult?.officialMatches[source.id];
+      return {
+        id: source.id,
+        authority: source.authority,
+        title: source.title,
+        url: source.url,
+        status: smart?.status ?? source.status,
+        matchedTerms: smart?.matchedTerms ?? source.matchedTerms,
+      };
+    });
+
+    const confidence = smartResult?.officialConfidence ?? officialValidation.confidence;
+    const verdict = smartResult
+      ? confidence >= 74
+        ? "Officially grounded"
+        : confidence >= 42
+          ? "Needs official evidence"
+          : "Not source-validated yet"
+      : officialValidation.verdict;
+
+    return { matches, confidence, verdict };
+  }, [officialValidation, smartResult]);
+
   function toggleFramework(id: FrameworkId) {
     setSelected((current) =>
       current.includes(id)
@@ -646,12 +672,69 @@ export function ComplianceChecker() {
     );
   }
 
-  function handleFile(event: ChangeEvent<HTMLInputElement>) {
+  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    const extension = (file.name.split(".").pop() ?? "").toLowerCase();
+
+    if (BINARY_UPLOAD_EXTENSIONS.has(extension)) {
+      setDocumentText(`Extracting text from ${file.name}...`);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch("/api/extract-document", { method: "POST", body: formData });
+        const payload = (await response.json()) as { text?: string; error?: string };
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error ?? "Could not extract text from this file.");
+        }
+        setDocumentText(payload.text ?? "");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not extract text from this file.";
+        setDocumentText(`(${message} Paste the text manually instead.)`);
+      }
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => setDocumentText(String(reader.result ?? ""));
     reader.readAsText(file);
+  }
+
+  /**
+   * Runs after runCheck's gate + fetch steps, without blocking the button —
+   * the static heuristic above already rendered instantly; this upgrades
+   * the display in place when (and if) it succeeds.
+   */
+  async function runSmartAnalysis(
+    analysisText: string,
+    analysisUrl: string,
+    activeFrameworks: FrameworkId[],
+  ) {
+    setSmartStatus("loading");
+    setSmartResult(null);
+    try {
+      const response = await fetch("/api/analyze-smart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentText: analysisText,
+          url: analysisUrl,
+          selectedFrameworks: activeFrameworks,
+          includeSecurity: false, // already expanded into activeFrameworks
+        }),
+      });
+      const payload = (await response.json()) as SmartAnalysisApiResponse;
+      if (payload.ok) {
+        setSmartResult(payload);
+        setSmartStatus("success");
+      } else {
+        setSmartStatus("unavailable");
+        setSmartReason(payload.reason ?? "AI-powered analysis unavailable for this run.");
+      }
+    } catch {
+      setSmartStatus("unavailable");
+      setSmartReason("AI-powered analysis unavailable for this run.");
+    }
   }
 
   async function runCheck() {
@@ -754,6 +837,17 @@ export function ComplianceChecker() {
     setSubmittedSelected(selected);
     setSubmittedIncludeSecurity(includeSecurity);
     setLastRunLabel(`Checked ${mode === "website" ? "website" : "document"} input just now`);
+
+    const activeFrameworksForSmart = includeSecurity
+      ? Array.from(new Set([...selected, "soc2" as FrameworkId]))
+      : selected;
+    // Not awaited: the heuristic above already rendered instantly, and this
+    // upgrades the display in place whenever it resolves.
+    void runSmartAnalysis(
+      mode === "website" ? websiteText : trimmedDocumentText,
+      mode === "website" ? trimmedUrl : "",
+      activeFrameworksForSmart,
+    );
   }
 
   return (
@@ -864,15 +958,30 @@ export function ComplianceChecker() {
             transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
           >
             <Card className="flex items-center gap-5 p-6" aria-live="polite">
-              <ScoreRing value={assessment.readiness} />
+              <ScoreRing value={displayAssessment.readiness} />
               <div>
-                <p className="eyebrow mb-1.5">Compatibility verdict</p>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <p className="eyebrow mb-0">Compatibility verdict</p>
+                  {smartStatus === "loading" ? (
+                    <Badge tone="blue" size="sm" className="gap-1 px-2">
+                      <Loader2 className="h-3 w-3 animate-spin" /> AI analyzing
+                    </Badge>
+                  ) : smartStatus === "success" ? (
+                    <Badge tone="gold" size="sm" className="gap-1 px-2">
+                      <Sparkles className="h-3 w-3" /> AI-powered
+                    </Badge>
+                  ) : smartStatus === "unavailable" ? (
+                    <Badge tone="neutral" size="sm" className="px-2" title={smartReason}>
+                      Baseline heuristic
+                    </Badge>
+                  ) : null}
+                </div>
                 <h2 className="font-display text-[1.5rem] font-semibold tracking-[-0.01em] text-text">
-                  {assessment.verdict}
+                  {displayAssessment.verdict}
                 </h2>
                 <p className="mt-1.5 text-[0.85rem] text-text-2">
-                  Based on {assessment.frameworkResults.length} frameworks and{" "}
-                  {assessment.detectedRisks.length} active risk findings.
+                  Based on {displayAssessment.frameworkResults.length} frameworks and{" "}
+                  {displayAssessment.detectedRisks.length} active risk findings.
                 </p>
                 <p className="mt-2 font-mono text-[0.7rem] text-text-3">{lastRunLabel}</p>
               </div>
@@ -931,10 +1040,17 @@ export function ComplianceChecker() {
                 </label>
 
                 <label className="glass-panel-soft grid cursor-pointer justify-items-center gap-0.5 p-4 text-center transition-colors hover:border-gold">
-                  <input type="file" accept=".txt,.md,.csv,.json" onChange={handleFile} className="sr-only" />
+                  <input
+                    type="file"
+                    accept=".txt,.md,.csv,.json,.pptx,.docx,.pdf"
+                    onChange={handleFile}
+                    className="sr-only"
+                  />
                   <Upload className="mb-1 h-4 w-4 text-text-3" />
                   <span className="text-[0.86rem] font-semibold text-text">Upload document</span>
-                  <small className="font-mono text-[0.68rem] text-text-3">.txt, .md, .csv, or .json</small>
+                  <small className="font-mono text-[0.68rem] text-text-3">
+                    .txt, .md, .csv, .json, .pptx, .docx, or .pdf
+                  </small>
                 </label>
 
                 <div className="flex flex-wrap gap-2" aria-label="Document examples">
@@ -1085,11 +1201,11 @@ export function ComplianceChecker() {
                 Compatibility by framework
               </h2>
             </div>
-            <Badge tone="gold">{assessment.verdict}</Badge>
+            <Badge tone="gold">{displayAssessment.verdict}</Badge>
           </div>
 
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(232px,1fr))]">
-            {assessment.frameworkResults.map((framework, index) => (
+            {displayAssessment.frameworkResults.map((framework, index) => (
               <FrameworkCard key={framework.id} framework={framework} index={index} />
             ))}
           </div>
@@ -1103,12 +1219,12 @@ export function ComplianceChecker() {
                 </h2>
               </div>
               <span className="font-mono text-[0.74rem] text-text-3">
-                {assessment.detectedRisks.length} findings
+                {displayAssessment.detectedRisks.length} findings
               </span>
             </div>
 
             <div className="grid gap-2.5">
-              {assessment.detectedRisks.map((risk, index) => (
+              {displayAssessment.detectedRisks.map((risk, index) => (
                 <motion.article
                   key={risk.title}
                   initial={shouldReduceMotion ? undefined : { opacity: 0, y: 10 }}
@@ -1142,26 +1258,25 @@ export function ComplianceChecker() {
                 </h2>
               </div>
               <span className="font-mono text-[0.74rem] text-text-3">
-                {officialValidation.confidence}% source confidence
+                {displayOfficialValidation.confidence}% source confidence
               </span>
             </div>
             <Card className="grid gap-1.5 border-blue/30 bg-blue/[0.04] p-4.5">
               <strong className="font-display text-[1.05rem] font-semibold text-blue">
-                {officialValidation.verdict}
+                {displayOfficialValidation.verdict}
               </strong>
               <p className="text-[0.82rem] text-text-2">
                 This sub-agent checks the submitted URL and pasted document text
                 against official compliance sources and flags where official
                 evidence is missing.
               </p>
+              <p className="font-mono text-[0.7rem] text-text-3">
+                Knowledge base updated {formatRelativeTime(smartResult?.knowledgeBaseUpdatedAt ?? null)}
+              </p>
             </Card>
             <div className="grid gap-2">
-              {officialValidation.matches.map((source) => (
-                <Card
-                  key={`${source.authority}-${source.title}`}
-                  soft
-                  className="flex items-start gap-3.5 p-4"
-                >
+              {displayOfficialValidation.matches.map((source) => (
+                <Card key={source.id} soft className="flex items-start gap-3.5 p-4">
                   <span
                     className={cn(
                       "mt-1.5 block h-2.5 w-2.5 shrink-0 rounded-full",

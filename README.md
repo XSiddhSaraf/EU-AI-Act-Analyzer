@@ -60,6 +60,39 @@ Every website or document check is gated through `app/api/usage/consume`:
 After changing `db/schema.ts`, run `npm run db:generate` and commit the
 generated `drizzle/` folder; the Sites host applies it on deploy.
 
+## Smart Analysis (LLM-powered)
+
+By default, checks are scored with a fast, free, static keyword heuristic
+(`signalMap`/`riskPatterns` in `app/compliance-checker.tsx`). Set
+`ANTHROPIC_API_KEY` to additionally run a real Claude-powered analysis that
+replaces the heuristic's results in the UI when it succeeds — the heuristic
+still renders first/instantly and remains the fallback if the smart call is
+unavailable, slow, or fails (nothing ever breaks the "Run check" flow).
+
+- **Knowledge base**: `app/lib/regulatory-sources.ts` lists the official
+  source URL for each framework (EUR-Lex, NIST, ISO, OECD). `app/lib/
+  knowledge-base.ts` fetches and caches their text in the `knowledge_sources`
+  table, with a content hash so unchanged pages are cheap to re-check.
+  Freshness is hybrid: a background timer refreshes everything periodically
+  on self-hosted deployments (`KNOWLEDGE_BASE_REFRESH_INTERVAL_HOURS`,
+  default 24h), and any source older than `KNOWLEDGE_BASE_MAX_STALENESS_DAYS`
+  (default 7) is refreshed on demand before the next smart check — this is
+  what keeps things current on Cloudflare Workers too, where there's no
+  long-lived process for a background timer.
+- **Forcing a refresh**: `POST /api/admin/refresh-knowledge-base` (protected
+  by `ADMIN_TOKEN`) re-fetches every source immediately, e.g. right after a
+  known regulatory update.
+- **Analysis**: `POST /api/analyze-smart` sends the cached knowledge base
+  (in the prompt-cached system prompt) plus the submitted content to Claude
+  and validates the structured JSON response before using it.
+- **Cost**: this uses the real Anthropic API and is not free. Model defaults
+  to `claude-opus-4-7`; override with `ANTHROPIC_MODEL` (e.g.
+  `claude-sonnet-4-6`) to trade quality for cost. It's covered by the same
+  free-tier check limit as everything else — no separate metering.
+- **Document formats**: `.pptx`/`.docx`/`.pdf` uploads are extracted
+  server-side via `POST /api/extract-document` (using `officeparser`);
+  `.txt`/`.md`/`.csv`/`.json` are still read directly in the browser.
+
 ## Sign in with Google or Microsoft
 
 Authentication is handled by [Auth.js core](https://authjs.dev) (`@auth/core`)

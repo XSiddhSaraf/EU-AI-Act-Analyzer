@@ -12,7 +12,9 @@ import * as schema from "./schema";
  * The fallback database lives at $DATA_DIR/app.db (default ./data/app.db).
  */
 
-// Matches drizzle/0000_flippant_groot.sql, made idempotent for self-hosting.
+// Matches drizzle/*.sql, made idempotent for self-hosting. Keep in sync with
+// db/schema.ts by hand whenever the schema changes (run `npm run db:generate`
+// for the Cloudflare/D1 migration, then mirror the new table here too).
 const BOOTSTRAP_SQL = `
 CREATE TABLE IF NOT EXISTS account_plans (
   subject text PRIMARY KEY NOT NULL,
@@ -25,6 +27,17 @@ CREATE TABLE IF NOT EXISTS usage_events (
   kind text NOT NULL,
   label text DEFAULT '' NOT NULL,
   created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_sources (
+  id text PRIMARY KEY NOT NULL,
+  framework_id text NOT NULL,
+  source_url text NOT NULL,
+  title text DEFAULT '' NOT NULL,
+  raw_text text DEFAULT '' NOT NULL,
+  content_hash text DEFAULT '' NOT NULL,
+  status text DEFAULT 'ok' NOT NULL,
+  last_error text DEFAULT '' NOT NULL,
+  fetched_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 `;
 

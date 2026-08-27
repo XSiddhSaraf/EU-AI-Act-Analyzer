@@ -45,12 +45,34 @@ test("D1 migration for usage metering is generated and bundled", async () => {
   const combined = migrationContents.join("\n");
   assert.match(combined, /CREATE TABLE `usage_events`/);
   assert.match(combined, /CREATE TABLE `account_plans`/);
+  assert.match(combined, /CREATE TABLE `knowledge_sources`/);
 
   assert.equal(
     await exists("dist/.openai/drizzle/meta/_journal.json"),
     true,
     "generated migrations should be bundled into dist for the host to apply on deploy",
   );
+});
+
+test("self-hosted bootstrap SQL stays in sync with the Drizzle schema", async () => {
+  const dbIndex = await readFile(new URL("db/index.ts", root), "utf8");
+  assert.match(dbIndex, /CREATE TABLE IF NOT EXISTS knowledge_sources/);
+});
+
+test("smart analysis (LLM-powered) is wired end to end, with a static fallback", async () => {
+  const [checker, analyzeRoute, knowledgeBase, regulatorySources] = await Promise.all([
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+    readFile(new URL("app/api/analyze-smart/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/knowledge-base.ts", root), "utf8"),
+    readFile(new URL("app/lib/regulatory-sources.ts", root), "utf8"),
+  ]);
+
+  assert.match(checker, /\/api\/analyze-smart/);
+  assert.match(checker, /Baseline heuristic/, "UI should surface when the AI analysis wasn't used");
+  assert.match(analyzeRoute, /ANTHROPIC_API_KEY/);
+  assert.match(analyzeRoute, /ok: false/, "the route must fail open instead of erroring");
+  assert.match(knowledgeBase, /getKnowledgeBaseContext/);
+  assert.match(regulatorySources, /eur-lex\.europa\.eu/);
 });
 
 test("home page renders the AI Governance Compatibility Checker, not the starter skeleton", async () => {

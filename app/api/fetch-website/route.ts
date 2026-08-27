@@ -1,47 +1,6 @@
+import { extractMeta, isBlockedHost, normalizeWhitespace, stripHtml } from "../../lib/html-to-text";
+
 const MAX_TEXT_LENGTH = 18000;
-
-function normalizeWhitespace(value: string) {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function decodeEntities(value: string) {
-  return value
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">");
-}
-
-function stripHtml(html: string) {
-  const withoutScripts = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
-  const withBreaks = withoutScripts
-    .replace(/<\/(p|div|section|article|header|footer|li|h[1-6])>/gi, " ")
-    .replace(/<br\s*\/?>/gi, " ");
-
-  return normalizeWhitespace(decodeEntities(withBreaks.replace(/<[^>]+>/g, " ")));
-}
-
-function extractMeta(html: string, pattern: RegExp) {
-  return decodeEntities(html.match(pattern)?.[1] ?? "").trim();
-}
-
-function isBlockedHost(hostname: string) {
-  const host = hostname.toLowerCase();
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "0.0.0.0" ||
-    host.startsWith("127.") ||
-    host.startsWith("10.") ||
-    host.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
-  );
-}
 
 export async function POST(request: Request) {
   try {
