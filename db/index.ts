@@ -15,7 +15,7 @@ import * as schema from "./schema";
 // Matches drizzle/*.sql, made idempotent for self-hosting. Keep in sync with
 // db/schema.ts by hand whenever the schema changes (run `npm run db:generate`
 // for the Cloudflare/D1 migration, then mirror the new table here too).
-const BOOTSTRAP_SQL = `
+const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS account_plans (
   subject text PRIMARY KEY NOT NULL,
   plan text DEFAULT 'free' NOT NULL,
@@ -25,12 +25,6 @@ CREATE TABLE IF NOT EXISTS account_plans (
   razorpay_subscription_id text DEFAULT '' NOT NULL,
   updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
--- Idempotent (SQLite 3.35+): adds columns to a database created before
--- they existed, without erroring on later restarts.
-ALTER TABLE account_plans ADD COLUMN IF NOT EXISTS payment_provider text DEFAULT '' NOT NULL;
-ALTER TABLE account_plans ADD COLUMN IF NOT EXISTS stripe_customer_id text DEFAULT '' NOT NULL;
-ALTER TABLE account_plans ADD COLUMN IF NOT EXISTS stripe_subscription_id text DEFAULT '' NOT NULL;
-ALTER TABLE account_plans ADD COLUMN IF NOT EXISTS razorpay_subscription_id text DEFAULT '' NOT NULL;
 CREATE TABLE IF NOT EXISTS usage_events (
   id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
   subject text NOT NULL,
@@ -50,6 +44,32 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
   fetched_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 `;
+
+// SQLite has no "ADD COLUMN IF NOT EXISTS" (that's a syntax error, not just
+// an older-SQLite thing — verified against better-sqlite3's bundled SQLite).
+// Each statement below is run individually with "duplicate column name"
+// swallowed, which is the standard idempotent way to add a column to a
+// database created before it existed, without erroring on later restarts.
+const ADD_COLUMN_STATEMENTS = [
+  "ALTER TABLE account_plans ADD COLUMN payment_provider text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN stripe_customer_id text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN stripe_subscription_id text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN razorpay_subscription_id text DEFAULT '' NOT NULL",
+];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function runBootstrapSql(sqlite: any) {
+  sqlite.exec(CREATE_TABLES_SQL);
+  for (const statement of ADD_COLUMN_STATEMENTS) {
+    try {
+      sqlite.exec(statement);
+    } catch (error) {
+      if (!(error instanceof Error) || !/duplicate column name/i.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let cached: any = null;
@@ -84,7 +104,7 @@ export async function getDb(): Promise<any> {
     mkdirSync(dataDir, { recursive: true });
     const sqlite = new Database(join(dataDir, "app.db"));
     sqlite.pragma("journal_mode = WAL");
-    sqlite.exec(BOOTSTRAP_SQL);
+    runBootstrapSql(sqlite);
 
     cached = drizzle(sqlite, { schema });
     return cached;
