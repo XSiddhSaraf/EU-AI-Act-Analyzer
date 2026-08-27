@@ -315,7 +315,7 @@ export function ComplianceChecker() {
     let cancelled = false;
 
     fetch("/api/auth/session")
-      .then((response) => (response.ok ? response.json() : null))
+      .then((response) => (response.ok ? response.json<SessionResponse>() : null))
       .then((data: SessionResponse | null) => {
         if (cancelled) return;
         const email = data?.user?.email ?? null;
@@ -342,7 +342,7 @@ export function ComplianceChecker() {
     let cancelled = false;
 
     fetch("/api/usage")
-      .then((response) => response.json())
+      .then((response) => response.json<UsageResponse>())
       .then((data: UsageResponse) => {
         if (cancelled) return;
         setUsage({
