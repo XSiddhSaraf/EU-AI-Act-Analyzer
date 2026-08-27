@@ -773,8 +773,17 @@ export function ComplianceChecker() {
         checkout.open();
         return;
       }
+
+      if (!payload.ok) {
+        // Surface *why* no provider could be used (e.g. a Razorpay API error
+        // such as an unactivated account) instead of silently redirecting to
+        // the mailto fallback with no visible explanation.
+        setBillingMessage(
+          payload.reason ?? "No payment provider is configured on this deployment.",
+        );
+      }
     } catch {
-      // fall through to the mailto fallback below
+      setBillingMessage("Could not start checkout right now.");
     }
     setCheckoutStatus("idle");
     window.location.href = UPGRADE_URL;
@@ -1610,6 +1619,10 @@ export function ComplianceChecker() {
               </a>
             </Card>
           </div>
+
+          {billingMessage ? (
+            <p className="mt-4 text-center font-mono text-[0.74rem] text-critical">{billingMessage}</p>
+          ) : null}
 
           <p className="mt-4.5 text-center text-[0.74rem] text-text-3">
             Already upgraded? Refresh this page after payment — your plan
