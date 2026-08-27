@@ -143,6 +143,66 @@ working either way.
   client falls back to the mailto link, matching this project's existing
   fail-open conventions.
 
+## Razorpay Billing
+
+Stripe is currently invite-only in India, so Razorpay is supported as an
+alternative payment provider for the same $11/mo Pro subscription.
+`POST /api/billing/checkout` is the single endpoint the client calls — it
+prefers Razorpay when `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/
+`RAZORPAY_PLAN_ID` are all set, otherwise falls back to Stripe, otherwise to
+the plain `mailto:` link, so only one provider needs to be configured on any
+given deployment.
+
+### Setup (Razorpay Dashboard)
+
+1. Create a Razorpay account at
+   [dashboard.razorpay.com](https://dashboard.razorpay.com) and stay in
+   **Test Mode** while you set things up.
+2. **Account & Settings → International Payments/Payment Methods**: enable
+   international payments so non-Indian cards can subscribe (skip this if
+   you only expect Indian customers).
+3. **Subscriptions → Plans → Create Plan**: a monthly recurring Plan billed
+   in USD for **$11.00**. Copy its Plan id (starts with `plan_`) for
+   `RAZORPAY_PLAN_ID`.
+4. **Settings → API Keys → Generate Key**: copy the Key Id and Key Secret
+   for `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`.
+5. **Account & Settings → Webhooks → Add New Webhook**: URL
+   `https://<your-domain>/api/razorpay/webhook`, active events
+   `subscription.activated`, `subscription.charged`,
+   `subscription.cancelled`, `subscription.completed`,
+   `subscription.halted`. Copy the webhook secret for
+   `RAZORPAY_WEBHOOK_SECRET`.
+6. Test with [Razorpay's test cards](https://razorpay.com/docs/payments/payments/test-card-upi-details/)
+   before switching to live keys — repeat steps 3–5 in Live Mode when
+   you're ready to accept real payments.
+
+### How it works
+
+- **`POST /api/billing/checkout`**: requires sign-in, same as Stripe. When
+  Razorpay is the active provider, it creates a Razorpay subscription
+  server-side and returns its id plus the public Key Id; the client loads
+  Razorpay's `checkout.js` and opens the hosted payment modal inline
+  (Razorpay has no equivalent to Stripe's redirect-to-hosted-page flow).
+- **`POST /api/razorpay/webhook`**: the source of truth for entitlement.
+  `subscription.activated`/`.charged` flip `account_plans.plan` to `"pro"`
+  with `paymentProvider: "razorpay"` and store the subscription id;
+  `subscription.cancelled`/`.completed`/`.halted` flip it back to `"free"`.
+  Verifies the raw request body against `RAZORPAY_WEBHOOK_SECRET` using
+  Razorpay's signature scheme.
+- **`POST /api/billing/cancel`**: Razorpay has no self-service Billing
+  Portal like Stripe's, so Pro subscribers on Razorpay instead see a
+  "Cancel subscription" button (with a confirm prompt) next to the usage
+  meter, which cancels the subscription directly. Stripe subscribers keep
+  using the existing "Manage billing" portal button instead. Either way, the
+  respective webhook remains the actual source of truth for the plan flip —
+  this route also optimistically updates the local row.
+- **`GET /api/usage`** additionally reports `paymentProvider` so the client
+  knows which of the two billing actions to render.
+- **Reliability**: if `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/
+  `RAZORPAY_PLAN_ID` aren't all set, `/api/billing/checkout` skips Razorpay
+  and falls back to Stripe (then to the mailto link), matching this
+  project's existing fail-open conventions.
+
 ## Sign in with Google or Microsoft
 
 Authentication is handled by [Auth.js core](https://authjs.dev) (`@auth/core`)

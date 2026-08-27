@@ -48,6 +48,8 @@ test("D1 migration for usage metering is generated and bundled", async () => {
   assert.match(combined, /CREATE TABLE `knowledge_sources`/);
   assert.match(combined, /stripe_customer_id/);
   assert.match(combined, /stripe_subscription_id/);
+  assert.match(combined, /payment_provider/);
+  assert.match(combined, /razorpay_subscription_id/);
 
   assert.equal(
     await exists("dist/.openai/drizzle/meta/_journal.json"),
@@ -61,27 +63,54 @@ test("self-hosted bootstrap SQL stays in sync with the Drizzle schema", async ()
   assert.match(dbIndex, /CREATE TABLE IF NOT EXISTS knowledge_sources/);
   assert.match(dbIndex, /stripe_customer_id/);
   assert.match(dbIndex, /stripe_subscription_id/);
+  assert.match(dbIndex, /payment_provider/);
+  assert.match(dbIndex, /razorpay_subscription_id/);
 });
 
 test("Stripe billing is wired end to end, with a manual-plan fallback", async () => {
-  const [checker, checkoutRoute, webhookRoute, portalRoute, schema] = await Promise.all([
+  const [checker, webhookRoute, portalRoute, schema] = await Promise.all([
     readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
-    readFile(new URL("app/api/stripe/checkout/route.ts", root), "utf8"),
     readFile(new URL("app/api/stripe/webhook/route.ts", root), "utf8"),
     readFile(new URL("app/api/stripe/portal/route.ts", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
   ]);
 
-  assert.match(checker, /\/api\/stripe\/checkout/);
   assert.match(checker, /\/api\/stripe\/portal/);
   assert.match(checker, /Sign in to upgrade/);
-  assert.match(checkoutRoute, /getCurrentUser/, "checkout must require sign-in");
-  assert.match(checkoutRoute, /mode: "subscription"/);
   assert.match(webhookRoute, /constructEvent/, "webhook must verify the Stripe signature");
   assert.match(webhookRoute, /checkout\.session\.completed/);
   assert.match(webhookRoute, /customer\.subscription\.deleted/);
   assert.match(portalRoute, /billingPortal/);
   assert.match(schema, /stripeCustomerId/);
+});
+
+test("Razorpay billing is wired end to end, unified with Stripe checkout", async () => {
+  const [checker, checkoutRoute, cancelRoute, webhookRoute, usageRoute, razorpayLib, schema] = await Promise.all([
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+    readFile(new URL("app/api/billing/checkout/route.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/cancel/route.ts", root), "utf8"),
+    readFile(new URL("app/api/razorpay/webhook/route.ts", root), "utf8"),
+    readFile(new URL("app/api/usage/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/razorpay.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+  ]);
+
+  assert.match(checker, /\/api\/billing\/checkout/, "the client must call the unified checkout endpoint");
+  assert.match(checker, /\/api\/billing\/cancel/, "the client must call the unified cancel endpoint");
+  assert.match(checker, /checkout\.razorpay\.com\/v1\/checkout\.js/, "Razorpay's hosted modal script must be loaded");
+  assert.match(checkoutRoute, /getCurrentUser/, "unified checkout must require sign-in");
+  assert.match(checkoutRoute, /provider: "razorpay"/);
+  assert.match(checkoutRoute, /provider: "stripe"/, "must still fall back to Stripe");
+  assert.match(cancelRoute, /razorpay/i);
+  assert.match(cancelRoute, /stripe/i, "must still support canceling Stripe subscriptions");
+  assert.match(webhookRoute, /validateWebhookSignature/, "webhook must verify the Razorpay signature");
+  assert.match(webhookRoute, /subscription\.activated/);
+  assert.match(webhookRoute, /subscription\.cancelled/);
+  assert.match(usageRoute, /paymentProvider/, "usage route must expose which provider is active");
+  assert.match(razorpayLib, /RAZORPAY_KEY_ID/);
+  assert.match(razorpayLib, /RAZORPAY_KEY_SECRET/);
+  assert.match(schema, /razorpaySubscriptionId/);
+  assert.match(schema, /paymentProvider/);
 });
 
 test("smart analysis (LLM-powered) is wired end to end, with a static fallback", async () => {

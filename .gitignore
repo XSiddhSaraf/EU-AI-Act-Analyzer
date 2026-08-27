@@ -44,3 +44,6 @@ next-env.d.ts
 
 # self-hosted local SQLite fallback database (see db/index.ts)
 /data/
+
+# incremental tsc --noEmit build cache
+tsconfig.tsbuildinfo

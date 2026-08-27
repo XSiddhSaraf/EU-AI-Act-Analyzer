@@ -12,6 +12,7 @@ export async function GET() {
 
   let used = 0;
   let plan = "free";
+  let paymentProvider = "";
   let degraded = false;
 
   try {
@@ -23,12 +24,15 @@ export async function GET() {
       .where(eq(usageEvents.subject, subject));
     used = Number(usedRows[0]?.value ?? 0);
 
-    const planRows = await db
+    const planRows: (typeof accountPlans.$inferSelect)[] = await db
       .select()
       .from(accountPlans)
       .where(eq(accountPlans.subject, subject))
       .limit(1);
     plan = planRows[0]?.plan ?? "free";
+    // Tells the client whether "Manage billing" should open the Stripe
+    // portal or offer a direct cancel action (Razorpay has no portal).
+    paymentProvider = planRows[0]?.paymentProvider ?? "";
   } catch {
     // Metering table not provisioned yet in this environment (e.g. before
     // the first deploy applies the generated D1 migration). Degrade
@@ -42,6 +46,7 @@ export async function GET() {
   const response = Response.json({
     accountType: isAuthenticated ? "account" : "device",
     plan,
+    paymentProvider,
     used,
     limit: FREE_CHECK_LIMIT,
     remaining,

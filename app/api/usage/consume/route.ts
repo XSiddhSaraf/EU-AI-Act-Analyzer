@@ -30,12 +30,13 @@ export async function POST(request: Request) {
   try {
     const db = await getDb();
 
-    const planRows = await db
+    const planRows: (typeof accountPlans.$inferSelect)[] = await db
       .select()
       .from(accountPlans)
       .where(eq(accountPlans.subject, subject))
       .limit(1);
     const plan = planRows[0]?.plan ?? "free";
+    const paymentProvider = planRows[0]?.paymentProvider ?? "";
     const unlimited = plan !== "free";
 
     const usedRows = await db
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
       Response.json({
         allowed: true,
         plan,
+        paymentProvider,
         used: nextUsed,
         limit: FREE_CHECK_LIMIT,
         remaining: unlimited ? null : Math.max(0, FREE_CHECK_LIMIT - nextUsed),

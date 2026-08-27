@@ -38,6 +38,7 @@ type PlanId = "free" | "pro" | "team";
 
 type UsageState = {
   plan: PlanId | string;
+  paymentProvider: string;
   used: number;
   limit: number;
   remaining: number | null;
@@ -48,6 +49,7 @@ type UsageState = {
 type UsageResponse = Partial<{
   allowed: boolean;
   plan: string;
+  paymentProvider: string;
   used: number;
   limit: number;
   remaining: number | null;
@@ -273,6 +275,47 @@ type SmartAnalysisSuccess = {
 
 type SmartAnalysisApiResponse = SmartAnalysisSuccess | { ok: false; reason?: string };
 
+// Unified checkout response from POST /api/billing/checkout — the server
+// prefers Razorpay when configured (Stripe is invite-only in India), else
+// Stripe, matching app/api/billing/checkout/route.ts's BillingCheckoutResponse.
+type BillingCheckoutResponse =
+  | { ok: true; provider: "stripe"; url: string }
+  | { ok: true; provider: "razorpay"; subscriptionId: string; keyId: string; prefillEmail: string }
+  | { ok: false; reason?: string };
+
+type RazorpayCheckoutOptions = {
+  key: string;
+  subscription_id: string;
+  name: string;
+  description?: string;
+  prefill?: { email?: string };
+  theme?: { color?: string };
+  handler?: (response: unknown) => void;
+  modal?: { ondismiss?: () => void };
+};
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayCheckoutOptions) => { open: () => void };
+  }
+}
+
+/** Lazily loads Razorpay's hosted checkout modal script (not bundled — it's
+ * fetched from Razorpay's CDN on first use, same approach Razorpay's own
+ * docs recommend) and resolves to whether `window.Razorpay` is usable. */
+function loadRazorpayCheckout(): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 function formatRelativeTime(iso: string | null): string {
   if (!iso) return "not yet fetched";
   const diffMinutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -454,6 +497,7 @@ export function ComplianceChecker() {
         if (cancelled) return;
         setUsage({
           plan: data.plan ?? "free",
+          paymentProvider: data.paymentProvider ?? "",
           used: data.used ?? 0,
           limit: data.limit ?? 3,
           remaining: data.remaining ?? null,
@@ -677,8 +721,15 @@ export function ComplianceChecker() {
 
   /**
    * Requires sign-in first (a stable `user:<email>` subject is what lets a
-   * Stripe subscription reliably link back to this account). Falls back to
-   * the plain mailto UPGRADE_URL if Stripe isn't configured or errors.
+   * subscription reliably link back to this account). Falls back to the
+   * plain mailto UPGRADE_URL if no payment provider is configured or errors.
+   *
+   * POST /api/billing/checkout picks the provider server-side (Razorpay when
+   * configured, else Stripe — see app/api/billing/checkout/route.ts). Stripe
+   * returns a hosted checkout URL to redirect to; Razorpay returns a
+   * subscription id that this client opens inline via Razorpay's checkout.js
+   * modal (Razorpay has no equivalent hosted redirect page). Either way, the
+   * actual entitlement flip happens via webhook, not this response.
    */
   async function handleUpgradeClick() {
     if (auth.status !== "signed-in") {
@@ -686,11 +737,40 @@ export function ComplianceChecker() {
       return;
     }
     setCheckoutStatus("loading");
+    setBillingMessage("");
     try {
-      const response = await fetch("/api/stripe/checkout", { method: "POST" });
-      const payload = (await response.json()) as { ok?: boolean; url?: string; reason?: string };
-      if (payload.ok && payload.url) {
+      const response = await fetch("/api/billing/checkout", { method: "POST" });
+      const payload = (await response.json()) as BillingCheckoutResponse;
+
+      if (payload.ok && payload.provider === "stripe") {
         window.location.href = payload.url;
+        return;
+      }
+
+      if (payload.ok && payload.provider === "razorpay") {
+        const loaded = await loadRazorpayCheckout();
+        if (!loaded || !window.Razorpay) {
+          throw new Error("Could not load Razorpay checkout.");
+        }
+        const checkout = new window.Razorpay({
+          key: payload.keyId,
+          subscription_id: payload.subscriptionId,
+          name: "AI Governance Compatibility Checker",
+          description: "Pro plan — unlimited checks",
+          prefill: { email: payload.prefillEmail },
+          theme: { color: "#e9b94e" },
+          handler: () => {
+            setCheckoutStatus("idle");
+            setShowPaywall(false);
+            setBillingMessage(
+              "Payment received — your plan updates automatically within a few seconds. Refresh if it doesn't.",
+            );
+          },
+          modal: {
+            ondismiss: () => setCheckoutStatus("idle"),
+          },
+        });
+        checkout.open();
         return;
       }
     } catch {
@@ -700,9 +780,43 @@ export function ComplianceChecker() {
     window.location.href = UPGRADE_URL;
   }
 
+  /**
+   * Stripe subscribers get the hosted Billing Portal (payment method
+   * updates, invoices, self-service cancel). Razorpay has no equivalent
+   * portal, so Razorpay subscribers instead get a direct confirm-then-cancel
+   * action against the unified POST /api/billing/cancel route; the webhook
+   * remains the source of truth for the resulting plan flip, this just
+   * updates the local usage state optimistically.
+   */
   async function handleManageBilling() {
-    setPortalStatus("loading");
     setBillingMessage("");
+
+    if (usage?.paymentProvider === "razorpay") {
+      const confirmed = window.confirm(
+        "Cancel your Pro subscription? This takes effect immediately.",
+      );
+      if (!confirmed) return;
+      setPortalStatus("loading");
+      try {
+        const response = await fetch("/api/billing/cancel", { method: "POST" });
+        const payload = (await response.json()) as { ok?: boolean; reason?: string };
+        if (payload.ok) {
+          setBillingMessage("Subscription canceled. You're back on the free plan.");
+          setUsage((current) =>
+            current ? { ...current, plan: "free", unlimited: false, paymentProvider: "" } : current,
+          );
+        } else {
+          setBillingMessage(payload.reason ?? "Could not cancel your subscription right now.");
+        }
+      } catch {
+        setBillingMessage("Could not cancel your subscription right now.");
+      } finally {
+        setPortalStatus("idle");
+      }
+      return;
+    }
+
+    setPortalStatus("loading");
     try {
       const response = await fetch("/api/stripe/portal", { method: "POST" });
       const payload = (await response.json()) as { ok?: boolean; url?: string; reason?: string };
@@ -807,6 +921,7 @@ export function ComplianceChecker() {
     if (gate.plan !== undefined) {
       setUsage({
         plan: gate.plan ?? "free",
+        paymentProvider: gate.paymentProvider ?? "",
         used: gate.used ?? 0,
         limit: gate.limit ?? 3,
         remaining: gate.remaining ?? null,
@@ -996,7 +1111,13 @@ export function ComplianceChecker() {
                     onClick={handleManageBilling}
                     disabled={portalStatus === "loading"}
                   >
-                    {portalStatus === "loading" ? "Opening..." : "Manage billing"}
+                    {portalStatus === "loading"
+                      ? usage.paymentProvider === "razorpay"
+                        ? "Canceling..."
+                        : "Opening..."
+                      : usage.paymentProvider === "razorpay"
+                        ? "Cancel subscription"
+                        : "Manage billing"}
                   </Button>
                 ) : (
                   <Button size="sm" variant="solid" onClick={() => setShowPaywall(true)}>
