@@ -28,6 +28,7 @@
     "officeparser": "^7.8.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "stripe": "^22.6.0",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3"
   },

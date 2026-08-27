@@ -46,6 +46,8 @@ test("D1 migration for usage metering is generated and bundled", async () => {
   assert.match(combined, /CREATE TABLE `usage_events`/);
   assert.match(combined, /CREATE TABLE `account_plans`/);
   assert.match(combined, /CREATE TABLE `knowledge_sources`/);
+  assert.match(combined, /stripe_customer_id/);
+  assert.match(combined, /stripe_subscription_id/);
 
   assert.equal(
     await exists("dist/.openai/drizzle/meta/_journal.json"),
@@ -57,6 +59,29 @@ test("D1 migration for usage metering is generated and bundled", async () => {
 test("self-hosted bootstrap SQL stays in sync with the Drizzle schema", async () => {
   const dbIndex = await readFile(new URL("db/index.ts", root), "utf8");
   assert.match(dbIndex, /CREATE TABLE IF NOT EXISTS knowledge_sources/);
+  assert.match(dbIndex, /stripe_customer_id/);
+  assert.match(dbIndex, /stripe_subscription_id/);
+});
+
+test("Stripe billing is wired end to end, with a manual-plan fallback", async () => {
+  const [checker, checkoutRoute, webhookRoute, portalRoute, schema] = await Promise.all([
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+    readFile(new URL("app/api/stripe/checkout/route.ts", root), "utf8"),
+    readFile(new URL("app/api/stripe/webhook/route.ts", root), "utf8"),
+    readFile(new URL("app/api/stripe/portal/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+  ]);
+
+  assert.match(checker, /\/api\/stripe\/checkout/);
+  assert.match(checker, /\/api\/stripe\/portal/);
+  assert.match(checker, /Sign in to upgrade/);
+  assert.match(checkoutRoute, /getCurrentUser/, "checkout must require sign-in");
+  assert.match(checkoutRoute, /mode: "subscription"/);
+  assert.match(webhookRoute, /constructEvent/, "webhook must verify the Stripe signature");
+  assert.match(webhookRoute, /checkout\.session\.completed/);
+  assert.match(webhookRoute, /customer\.subscription\.deleted/);
+  assert.match(portalRoute, /billingPortal/);
+  assert.match(schema, /stripeCustomerId/);
 });
 
 test("smart analysis (LLM-powered) is wired end to end, with a static fallback", async () => {

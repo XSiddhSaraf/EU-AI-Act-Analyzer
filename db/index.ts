@@ -19,8 +19,14 @@ const BOOTSTRAP_SQL = `
 CREATE TABLE IF NOT EXISTS account_plans (
   subject text PRIMARY KEY NOT NULL,
   plan text DEFAULT 'free' NOT NULL,
+  stripe_customer_id text DEFAULT '' NOT NULL,
+  stripe_subscription_id text DEFAULT '' NOT NULL,
   updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+-- Idempotent (SQLite 3.35+): adds the two Stripe columns to a database
+-- created before they existed, without erroring on later restarts.
+ALTER TABLE account_plans ADD COLUMN IF NOT EXISTS stripe_customer_id text DEFAULT '' NOT NULL;
+ALTER TABLE account_plans ADD COLUMN IF NOT EXISTS stripe_subscription_id text DEFAULT '' NOT NULL;
 CREATE TABLE IF NOT EXISTS usage_events (
   id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
   subject text NOT NULL,

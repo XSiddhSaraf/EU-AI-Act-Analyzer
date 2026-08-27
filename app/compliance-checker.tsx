@@ -413,6 +413,9 @@ export function ComplianceChecker() {
   const [smartResult, setSmartResult] = useState<SmartAnalysisSuccess | null>(null);
   const [smartStatus, setSmartStatus] = useState<"idle" | "loading" | "success" | "unavailable">("idle");
   const [smartReason, setSmartReason] = useState("");
+  const [checkoutStatus, setCheckoutStatus] = useState<"idle" | "loading">("idle");
+  const [portalStatus, setPortalStatus] = useState<"idle" | "loading">("idle");
+  const [billingMessage, setBillingMessage] = useState("");
   const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
@@ -670,6 +673,49 @@ export function ComplianceChecker() {
         ? current.filter((item) => item !== id)
         : [...current, id],
     );
+  }
+
+  /**
+   * Requires sign-in first (a stable `user:<email>` subject is what lets a
+   * Stripe subscription reliably link back to this account). Falls back to
+   * the plain mailto UPGRADE_URL if Stripe isn't configured or errors.
+   */
+  async function handleUpgradeClick() {
+    if (auth.status !== "signed-in") {
+      window.location.href = SIGN_IN_HREF;
+      return;
+    }
+    setCheckoutStatus("loading");
+    try {
+      const response = await fetch("/api/stripe/checkout", { method: "POST" });
+      const payload = (await response.json()) as { ok?: boolean; url?: string; reason?: string };
+      if (payload.ok && payload.url) {
+        window.location.href = payload.url;
+        return;
+      }
+    } catch {
+      // fall through to the mailto fallback below
+    }
+    setCheckoutStatus("idle");
+    window.location.href = UPGRADE_URL;
+  }
+
+  async function handleManageBilling() {
+    setPortalStatus("loading");
+    setBillingMessage("");
+    try {
+      const response = await fetch("/api/stripe/portal", { method: "POST" });
+      const payload = (await response.json()) as { ok?: boolean; url?: string; reason?: string };
+      if (payload.ok && payload.url) {
+        window.location.href = payload.url;
+        return;
+      }
+      setBillingMessage(payload.reason ?? "Billing management is not available for this account yet.");
+    } catch {
+      setBillingMessage("Billing management is not available right now.");
+    } finally {
+      setPortalStatus("idle");
+    }
   }
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -943,10 +989,22 @@ export function ComplianceChecker() {
                     />
                   </>
                 )}
-                {!usage.unlimited ? (
+                {usage.unlimited ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleManageBilling}
+                    disabled={portalStatus === "loading"}
+                  >
+                    {portalStatus === "loading" ? "Opening..." : "Manage billing"}
+                  </Button>
+                ) : (
                   <Button size="sm" variant="solid" onClick={() => setShowPaywall(true)}>
                     Upgrade
                   </Button>
+                )}
+                {billingMessage ? (
+                  <small className="basis-full font-mono text-[0.68rem] text-text-3">{billingMessage}</small>
                 ) : null}
               </div>
             ) : null}
@@ -1388,7 +1446,7 @@ export function ComplianceChecker() {
               </Badge>
               <h3 className="font-mono text-[0.7rem] font-semibold tracking-[0.16em] text-gold uppercase">Pro</h3>
               <p className="font-display text-[2rem] font-semibold text-text">
-                $29<small className="font-sans text-[0.8rem] font-normal text-text-3">/mo</small>
+                $11<small className="font-sans text-[0.8rem] font-normal text-text-3">/mo</small>
               </p>
               <ul className="grid flex-1 gap-1.5">
                 {["Unlimited website & document checks", "Priority website fetch queue", "Priority email support"].map(
@@ -1399,14 +1457,18 @@ export function ComplianceChecker() {
                   ),
                 )}
               </ul>
-              <a
-                href={UPGRADE_URL}
-                target="_blank"
-                rel="noreferrer"
-                className={buttonVariants({ variant: "solid", className: "w-full" })}
+              <Button
+                variant="solid"
+                className="w-full"
+                onClick={handleUpgradeClick}
+                disabled={checkoutStatus === "loading"}
               >
-                Upgrade to Pro
-              </a>
+                {checkoutStatus === "loading"
+                  ? "Redirecting..."
+                  : auth.status === "signed-in"
+                    ? "Upgrade to Pro"
+                    : "Sign in to upgrade"}
+              </Button>
             </Card>
 
             <Card soft className="flex flex-col gap-2.5 p-5">

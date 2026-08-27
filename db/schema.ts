@@ -12,11 +12,17 @@ export const usageEvents = sqliteTable("usage_events", {
 });
 
 // Overrides the free tier for a subject once they upgrade (Pro/Team). Rows
-// are written today by /api/admin/set-plan; point a real billing webhook
-// (Stripe, etc.) at the same endpoint when one is wired up.
+// are written by /api/stripe/webhook on successful checkout/cancellation,
+// or manually via /api/admin/set-plan (e.g. Team deals, support cases).
 export const accountPlans = sqliteTable("account_plans", {
   subject: text("subject").primaryKey(),
   plan: text("plan").notNull().default("free"), // "free" | "pro" | "team"
+  // Set once a subject completes Stripe Checkout; used by /api/stripe/portal
+  // to open a billing-management session, and by the webhook to find the
+  // right row when a subscription is updated/canceled. Empty for
+  // subjects whose plan was only ever set manually (no self-service billing).
+  stripeCustomerId: text("stripe_customer_id").notNull().default(""),
+  stripeSubscriptionId: text("stripe_subscription_id").notNull().default(""),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

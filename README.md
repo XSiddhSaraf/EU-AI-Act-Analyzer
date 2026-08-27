@@ -93,6 +93,56 @@ unavailable, slow, or fails (nothing ever breaks the "Run check" flow).
   server-side via `POST /api/extract-document` (using `officeparser`);
   `.txt`/`.md`/`.csv`/`.json` are still read directly in the browser.
 
+## Stripe Billing
+
+The paywall's "Upgrade to Pro" button creates a real Stripe Checkout
+subscription ($11/mo) once configured; without configuration it falls back
+to a plain `mailto:` link (`NEXT_PUBLIC_UPGRADE_URL`), so the app keeps
+working either way.
+
+### Setup (Stripe Dashboard)
+
+1. Create a Stripe account at [stripe.com](https://stripe.com) and stay in
+   **test mode** while you set things up.
+2. **Product catalog → Add product**: create "AI Governance Checker Pro"
+   with a recurring price of **$11.00/month**. Copy the Price id (starts
+   with `price_`, not the Product id) for `STRIPE_PRICE_ID_PRO`.
+3. **Developers → API keys**: copy the secret key for `STRIPE_SECRET_KEY`.
+4. **Developers → Webhooks → Add endpoint**: URL
+   `https://<your-domain>/api/stripe/webhook`, events
+   `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`. Copy the signing secret for
+   `STRIPE_WEBHOOK_SECRET`.
+5. Test with [Stripe's test card numbers](https://docs.stripe.com/testing)
+   before switching to live keys — test and live are entirely separate API
+   keys, prices, and webhook endpoints, so repeat steps 2–4 in live mode
+   when you're ready to accept real payments.
+
+### How it works
+
+- **Sign-in required**: "Upgrade to Pro" requires Google/Microsoft sign-in
+  first (see below), because a Stripe subscription needs a stable identity
+  (`user:<email>`) to link back to — not the anonymous device cookie used
+  before sign-in.
+- **`POST /api/stripe/checkout`**: creates the Checkout Session for the
+  signed-in user and redirects to Stripe's hosted payment page.
+- **`POST /api/stripe/webhook`**: the source of truth for entitlement.
+  `checkout.session.completed` flips `account_plans.plan` to `"pro"` and
+  stores the Stripe customer/subscription id;
+  `customer.subscription.updated`/`.deleted` flips it back to `"free"` when
+  the subscription is canceled or unpaid. This replaces the day-to-day job
+  of the manual `POST /api/admin/set-plan`, which stays available for Team
+  deals or support cases.
+- **`POST /api/stripe/portal`**: opens a Stripe-hosted Billing Portal
+  session ("Manage billing" next to the usage meter) so Pro subscribers can
+  update payment methods or cancel themselves. Only works for subjects with
+  a Stripe customer id — accounts granted Pro manually via
+  `/api/admin/set-plan` have no self-service billing.
+- **Reliability**: if `STRIPE_SECRET_KEY`/`STRIPE_PRICE_ID_PRO` aren't set,
+  checkout/portal requests return a clear "not configured" response and the
+  client falls back to the mailto link, matching this project's existing
+  fail-open conventions.
+
 ## Sign in with Google or Microsoft
 
 Authentication is handled by [Auth.js core](https://authjs.dev) (`@auth/core`)
