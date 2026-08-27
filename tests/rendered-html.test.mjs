@@ -93,8 +93,8 @@ test("free-tier usage metering (3 free checks) is wired end to end", async () =>
   assert.match(consumeRoute, /free_limit_reached/);
 
   // UI: usage meter, gated run button, and the upgrade/paywall panel.
-  assert.match(checker, /usage-meter/);
-  assert.match(checker, /paywall-overlay/);
+  assert.match(checker, /free checks used/);
+  assert.match(checker, /showPaywall/);
   assert.match(checker, /\/api\/usage\/consume/);
   assert.match(checker, /Upgrade to Pro/);
 });

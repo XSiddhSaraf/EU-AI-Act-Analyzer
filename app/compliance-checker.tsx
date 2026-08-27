@@ -2,6 +2,32 @@
 
 import type { CSSProperties, ChangeEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Circle,
+  ExternalLink,
+  FileText,
+  Globe,
+  LogIn,
+  LogOut,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
+import { animate, motion, useReducedMotion } from "motion/react";
+import { Badge } from "./components/ui/badge";
+import { Button, buttonVariants } from "./components/ui/button";
+import { Card } from "./components/ui/card";
+import { Checkbox } from "./components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Progress } from "./components/ui/progress";
+import { Textarea } from "./components/ui/textarea";
+import { cn } from "./lib/cn";
 
 type FrameworkId = "euai" | "gdpr" | "iso42001" | "nist" | "oecd" | "soc2";
 type Severity = "Critical" | "High" | "Medium" | "Low";
@@ -281,6 +307,107 @@ function severityWeight(severity: Severity) {
   return { Critical: 4, High: 3, Medium: 2, Low: 1 }[severity];
 }
 
+function severityTone(severity: Severity): "critical" | "high" | "medium" | "low" {
+  return severity.toLowerCase() as "critical" | "high" | "medium" | "low";
+}
+
+/** Tweens a display number toward `target`, honoring prefers-reduced-motion. */
+function useCountUp(target: number) {
+  const shouldReduceMotion = useReducedMotion();
+  const [display, setDisplay] = useState(target);
+
+  useEffect(() => {
+    if (shouldReduceMotion) return;
+    const controls = animate(0, target, {
+      duration: 0.9,
+      ease: "easeOut",
+      onUpdate: (value) => setDisplay(Math.round(value)),
+    });
+    return () => controls.stop();
+  }, [target, shouldReduceMotion]);
+
+  return shouldReduceMotion ? target : display;
+}
+
+function ScoreRing({ value, size = 118 }: { value: number; size?: number }) {
+  const display = useCountUp(value);
+  return (
+    <div
+      className="score-ring"
+      style={{ "--score": display, width: size } as CSSProperties}
+    >
+      <span className="font-display text-[2.1rem] leading-none font-semibold text-text">
+        {display}
+      </span>
+      <small className="mt-1 font-mono text-[0.62rem] tracking-[0.14em] text-text-3">
+        /100
+      </small>
+    </div>
+  );
+}
+
+function FrameworkCard({
+  framework,
+  index,
+}: {
+  framework: {
+    id: FrameworkId;
+    label: string;
+    short: string;
+    description: string;
+    score: number;
+    status: string;
+    found: Array<{ label: string; present: boolean }>;
+  };
+  index: number;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  return (
+    <motion.article
+      initial={shouldReduceMotion ? undefined : { opacity: 0, y: 14 }}
+      animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.05, ease: "easeOut" }}
+    >
+      <Card className="grid h-full gap-3 p-5 transition-colors hover:border-border-strong">
+        <div className="flex items-baseline gap-2.5">
+          <Badge tone="neutral" size="sm" className="min-w-0 px-2">
+            {framework.short}
+          </Badge>
+          <strong className="text-[0.92rem] font-semibold text-text">{framework.label}</strong>
+        </div>
+        <Progress
+          value={framework.score}
+          label={`${framework.label} score ${framework.score}`}
+        />
+        <div className="flex items-baseline gap-2">
+          <b className="font-display text-[1.3rem] font-semibold text-text">{framework.score}%</b>
+          <em className="font-mono text-[0.68rem] tracking-[0.1em] text-text-3 not-italic uppercase">
+            {framework.status}
+          </em>
+        </div>
+        <ul className="grid gap-1.5">
+          {framework.found.slice(0, 4).map((signal) => (
+            <li
+              key={signal.label}
+              className={cn(
+                "flex items-start gap-2 text-[0.76rem]",
+                signal.present ? "text-text-2" : "text-text-3",
+              )}
+            >
+              {signal.present ? (
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ok" />
+              ) : (
+                <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-critical" />
+              )}
+              {signal.label}
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </motion.article>
+  );
+}
+
 export function ComplianceChecker() {
   const [mode, setMode] = useState<"website" | "document">("website");
   const [url, setUrl] = useState("https://example.com/ai-product-policy");
@@ -310,6 +437,7 @@ export function ComplianceChecker() {
     email: null,
     name: null,
   });
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     let cancelled = false;
@@ -629,451 +757,568 @@ export function ComplianceChecker() {
   }
 
   return (
-    <main className="app-shell min-h-screen">
-      <section className="hero-shell">
-        <div className="hero-grid">
-          <div className="hero-copy">
+    <main className="app-shell min-h-screen text-text">
+      <div className="ambient-glow" aria-hidden="true" />
+
+      {/* ── hero ─────────────────────────────────────────────────────────── */}
+      <section className="border-b border-border/60 px-6 pt-9 pb-12">
+        <div className="mx-auto grid max-w-[1240px] items-end gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+          <motion.div
+            className="max-w-[720px]"
+            initial={shouldReduceMotion ? undefined : { opacity: 0, y: 14 }}
+            animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+          >
             {auth.status !== "loading" ? (
-              <div className="account-row" aria-live="polite">
+              <div className="mb-5 flex flex-wrap items-center gap-3" aria-live="polite">
                 {auth.status === "signed-in" ? (
                   <>
-                    <span>Signed in as {auth.name || auth.email}</span>
-                    <a href={SIGN_OUT_HREF}>Sign out</a>
+                    <span className="font-mono text-[0.74rem] text-text-2">
+                      Signed in as {auth.name || auth.email}
+                    </span>
+                    <a
+                      href={SIGN_OUT_HREF}
+                      className="glass-panel-soft inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[0.8rem] font-semibold text-text transition-colors hover:border-gold hover:text-gold-soft"
+                    >
+                      <LogOut className="h-3.5 w-3.5" /> Sign out
+                    </a>
                   </>
                 ) : (
-                  <a href={SIGN_IN_HREF}>Sign in with Google or Microsoft</a>
+                  <a
+                    href={SIGN_IN_HREF}
+                    className="glass-panel-soft inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[0.8rem] font-semibold text-text transition-colors hover:border-gold hover:text-gold-soft"
+                  >
+                    <LogIn className="h-3.5 w-3.5" /> Sign in with Google or Microsoft
+                  </a>
                 )}
               </div>
             ) : null}
-            <p className="eyebrow">AI governance compatibility workspace</p>
-            <h1>Check a website or document against the EU AI Act.</h1>
-            <p className="hero-text">
+            <p className="eyebrow mb-1.5">AI governance compatibility workspace</p>
+            <h1 className="font-display text-[clamp(2rem,4.4vw,3.1rem)] leading-[1.1] font-semibold tracking-[-0.02em] text-text">
+              Check a website or document against the EU AI Act.
+            </h1>
+            <p className="mt-3.5 mb-6 max-w-[560px] text-[0.98rem] text-text-2">
               Scan policy text, product pages, procurement notes, or website
               copy for AI governance readiness. The checker maps evidence to
               major frameworks, flags risks, and turns each gap into a practical
               mitigation.
             </p>
-            <div className="hero-actions" aria-label="Assessment modes">
-              <button
-                className={mode === "website" ? "mode active" : "mode"}
+            <div
+              className="glass-panel-soft inline-flex gap-1.5 p-1.5"
+              aria-label="Assessment modes"
+            >
+              <Button
+                variant={mode === "website" ? "glass" : "ghost"}
                 onClick={() => setMode("website")}
-                type="button"
+                className={mode === "website" ? "border-border-strong text-text" : "border-transparent"}
               >
-                Website
-              </button>
-              <button
-                className={mode === "document" ? "mode active" : "mode"}
+                <Globe className="h-4 w-4" /> Website
+              </Button>
+              <Button
+                variant={mode === "document" ? "glass" : "ghost"}
                 onClick={() => setMode("document")}
-                type="button"
+                className={mode === "document" ? "border-border-strong text-text" : "border-transparent"}
               >
-                Document
-              </button>
+                <FileText className="h-4 w-4" /> Document
+              </Button>
             </div>
 
             {usage ? (
               <div
-                className={`usage-meter${usage.unlimited ? " unlimited" : ""}${atFreeLimit ? " exhausted" : ""}`}
+                className={cn(
+                  "glass-panel-soft mt-6 flex max-w-[480px] flex-wrap items-center gap-3.5 px-4 py-3",
+                  atFreeLimit && "border-critical/45",
+                  usage.unlimited && "border-gold/45",
+                )}
                 aria-live="polite"
               >
                 {usage.unlimited ? (
-                  <span>
+                  <span className="font-mono text-[0.74rem] text-gold">
                     {usage.plan === "team" ? "Team plan" : "Pro plan"} · Unlimited checks
                   </span>
                 ) : (
                   <>
-                    <span>
+                    <span className="font-mono text-[0.74rem] text-text-2">
                       {Math.min(usage.used, usage.limit)} of {usage.limit} free checks used
                       {usage.degraded ? " (preview — metering not live yet)" : ""}
                     </span>
-                    <div className="usage-bar">
-                      <i
-                        style={{
-                          width: `${Math.min(100, (Math.min(usage.used, usage.limit) / usage.limit) * 100)}%`,
-                        }}
-                      />
-                    </div>
+                    <Progress
+                      value={(Math.min(usage.used, usage.limit) / usage.limit) * 100}
+                      className="min-w-[90px] flex-1"
+                      label="Free checks used"
+                    />
                   </>
                 )}
                 {!usage.unlimited ? (
-                  <button type="button" className="usage-upgrade" onClick={() => setShowPaywall(true)}>
+                  <Button size="sm" variant="solid" onClick={() => setShowPaywall(true)}>
                     Upgrade
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             ) : null}
-          </div>
+          </motion.div>
 
-          <div className="verdict-panel" aria-live="polite">
-            <div className="score-ring" style={{ "--score": assessment.readiness } as CSSProperties}>
-              <span>{assessment.readiness}</span>
-              <small>/100</small>
-            </div>
-            <div>
-              <p className="panel-label">Compatibility verdict</p>
-              <h2>{assessment.verdict}</h2>
-              <p>
-                Based on {assessment.frameworkResults.length} frameworks and{" "}
-                {assessment.detectedRisks.length} active risk findings.
-              </p>
-              <p className="run-stamp">{lastRunLabel}</p>
-            </div>
-          </div>
+          <motion.div
+            initial={shouldReduceMotion ? undefined : { opacity: 0, scale: 0.96 }}
+            animate={shouldReduceMotion ? undefined : { opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+          >
+            <Card className="flex items-center gap-5 p-6" aria-live="polite">
+              <ScoreRing value={assessment.readiness} />
+              <div>
+                <p className="eyebrow mb-1.5">Compatibility verdict</p>
+                <h2 className="font-display text-[1.5rem] font-semibold tracking-[-0.01em] text-text">
+                  {assessment.verdict}
+                </h2>
+                <p className="mt-1.5 text-[0.85rem] text-text-2">
+                  Based on {assessment.frameworkResults.length} frameworks and{" "}
+                  {assessment.detectedRisks.length} active risk findings.
+                </p>
+                <p className="mt-2 font-mono text-[0.7rem] text-text-3">{lastRunLabel}</p>
+              </div>
+            </Card>
+          </motion.div>
         </div>
       </section>
 
-      <section className="workspace">
-        <aside className="input-panel" aria-label="Checker inputs">
-          <div className="panel-heading">
-            <span>1</span>
-            <div>
-              <h2>Source to check</h2>
-              <p>
-                {mode === "website"
-                  ? "Enter one public website URL for analysis."
-                  : "Paste text or upload one plain-text document."}
-              </p>
-            </div>
-          </div>
-
-          {mode === "website" ? (
-            <div className="intake-group website-intake">
-              <label className="field">
-                <span>Website URL</span>
-                <input
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
-                  placeholder="https://company.com/ai-policy"
-                  inputMode="url"
-                />
-              </label>
-              <p className="input-note">
-                The checker reads the public page content from this URL. It does
-                not upload or use a document in Website mode.
-              </p>
-            </div>
-          ) : (
-            <div className="intake-group document-intake">
-              <label className="field">
-                <span>Document text</span>
-                <textarea
-                  value={documentText}
-                  onChange={(event) => setDocumentText(event.target.value)}
-                  placeholder="Paste AI policy, DPIA, model card, privacy notice, or product documentation..."
-                />
-              </label>
-
-              <label className="upload-box">
-                <input type="file" accept=".txt,.md,.csv,.json" onChange={handleFile} />
-                <span>Upload document</span>
-                <small>.txt, .md, .csv, or .json</small>
-              </label>
-
-              <div className="example-row" aria-label="Document examples">
-                {examples.map((example, index) => (
-                  <button key={example} type="button" onClick={() => setDocumentText(example)}>
-                    Example {index + 1}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="submit-row">
-            <button
-              className="run-button"
-              disabled={!canRunCheck || fetchState === "loading"}
-              onClick={atFreeLimit ? () => setShowPaywall(true) : runCheck}
-              type="button"
-            >
-              {fetchState === "loading"
-                ? "Checking..."
-                : atFreeLimit
-                  ? "View upgrade options"
-                  : "Run check"}
-            </button>
-            <p>
-              {atFreeLimit
-                ? "You've used every free check. Upgrade to keep running checks."
-                : mode === "website"
-                  ? "Results update after the public website is fetched and analyzed."
-                  : "Results update from the pasted or uploaded document content."}
-            </p>
-          </div>
-
-          {mode === "website" ? (
-            <div className={`fetch-status ${fetchState}`} aria-live="polite">
-              <strong>
-                {fetchState === "success"
-                  ? "Website fetched"
-                  : fetchState === "error"
-                    ? "Website fetch needs help"
-                    : fetchState === "loading"
-                      ? "Fetching website"
-                      : "Website fetch status"}
-              </strong>
-              <p>{fetchMessage}</p>
-              {fetchedWebsiteTitle ? <small>Page title: {fetchedWebsiteTitle}</small> : null}
-              {fetchedWebsiteText ? (
-                <small>Preview: {fetchedWebsiteText.slice(0, 150)}...</small>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="framework-box">
-            <div className="panel-heading compact">
-              <span>2</span>
+      {/* ── workspace ────────────────────────────────────────────────────── */}
+      <section className="mx-auto grid max-w-[1240px] gap-6 px-6 py-9 pb-20 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+        <aside className="lg:sticky lg:top-6 lg:self-start">
+          <Card className="grid gap-5 p-6">
+            <div className="flex items-start gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gold/40 bg-gold/10 font-mono text-[0.8rem] font-semibold text-gold">
+                1
+              </span>
               <div>
-                <h2>Frameworks</h2>
-                <p>Select the governance lens for this review.</p>
+                <h2 className="font-display text-[1.12rem] font-semibold text-text">Source to check</h2>
+                <p className="text-[0.8rem] text-text-3">
+                  {mode === "website"
+                    ? "Enter one public website URL for analysis."
+                    : "Paste text or upload one plain-text document."}
+                </p>
               </div>
             </div>
-            <div className="framework-list">
-              {frameworks
-                .filter((framework) => framework.id !== "soc2")
-                .map((framework) => (
-                  <label key={framework.id} className="check-row">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(framework.id)}
-                      onChange={() => toggleFramework(framework.id)}
-                    />
-                    <span>
-                      <strong>{framework.label}</strong>
-                      <small>{framework.description}</small>
-                    </span>
-                  </label>
-                ))}
-              <label className="check-row switch">
-                <input
-                  type="checkbox"
-                  checked={includeSecurity}
-                  onChange={() => setIncludeSecurity((value) => !value)}
-                />
-                <span>
-                  <strong>Include security controls</strong>
-                  <small>SOC 2-style evidence for access, logging, and incidents</small>
-                </span>
-              </label>
-            </div>
-          </div>
 
-          <div className="review-summary" aria-live="polite">
-            <span>Review scope</span>
-            <strong>
-              {selected.length + (includeSecurity ? 1 : 0)} frameworks active
-            </strong>
-            <small>
-              {mode === "website" ? "Public website assessment" : "Document assessment"}
-            </small>
-          </div>
+            {mode === "website" ? (
+              <div className="glass-panel-soft grid gap-3 p-4">
+                <label className="grid gap-1.5">
+                  <span className="font-mono text-[0.66rem] font-medium tracking-[0.16em] text-text-3 uppercase">
+                    Website URL
+                  </span>
+                  <Input
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    placeholder="https://company.com/ai-policy"
+                    inputMode="url"
+                  />
+                </label>
+                <p className="text-[0.76rem] leading-[1.55] text-text-3">
+                  The checker reads the public page content from this URL. It does
+                  not upload or use a document in Website mode.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-3 border-b border-border/60 pb-3.5">
+                <label className="grid gap-1.5">
+                  <span className="font-mono text-[0.66rem] font-medium tracking-[0.16em] text-text-3 uppercase">
+                    Document text
+                  </span>
+                  <Textarea
+                    value={documentText}
+                    onChange={(event) => setDocumentText(event.target.value)}
+                    placeholder="Paste AI policy, DPIA, model card, privacy notice, or product documentation..."
+                  />
+                </label>
+
+                <label className="glass-panel-soft grid cursor-pointer justify-items-center gap-0.5 p-4 text-center transition-colors hover:border-gold">
+                  <input type="file" accept=".txt,.md,.csv,.json" onChange={handleFile} className="sr-only" />
+                  <Upload className="mb-1 h-4 w-4 text-text-3" />
+                  <span className="text-[0.86rem] font-semibold text-text">Upload document</span>
+                  <small className="font-mono text-[0.68rem] text-text-3">.txt, .md, .csv, or .json</small>
+                </label>
+
+                <div className="flex flex-wrap gap-2" aria-label="Document examples">
+                  {examples.map((example, index) => (
+                    <Button
+                      key={example}
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full font-mono text-[0.7rem]"
+                      onClick={() => setDocumentText(example)}
+                    >
+                      Example {index + 1}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-2.5">
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={!canRunCheck || fetchState === "loading"}
+                onClick={atFreeLimit ? () => setShowPaywall(true) : runCheck}
+              >
+                {fetchState === "loading"
+                  ? "Checking..."
+                  : atFreeLimit
+                    ? "View upgrade options"
+                    : "Run check"}
+              </Button>
+              <p className="text-center text-[0.76rem] text-text-3">
+                {atFreeLimit
+                  ? "You've used every free check. Upgrade to keep running checks."
+                  : mode === "website"
+                    ? "Results update after the public website is fetched and analyzed."
+                    : "Results update from the pasted or uploaded document content."}
+              </p>
+            </div>
+
+            {mode === "website" ? (
+              <div
+                className={cn(
+                  "glass-panel-soft grid gap-1 border-l-[3px] p-3.5",
+                  fetchState === "idle" && "border-l-border-strong",
+                  fetchState === "loading" && "border-l-blue",
+                  fetchState === "success" && "border-l-ok bg-ok/5",
+                  fetchState === "error" && "border-l-critical bg-critical/5",
+                )}
+                aria-live="polite"
+              >
+                <strong
+                  className={cn(
+                    "text-[0.84rem]",
+                    fetchState === "loading" && "text-blue",
+                    fetchState === "success" && "text-ok",
+                    fetchState === "error" && "text-critical",
+                  )}
+                >
+                  {fetchState === "success"
+                    ? "Website fetched"
+                    : fetchState === "error"
+                      ? "Website fetch needs help"
+                      : fetchState === "loading"
+                        ? "Fetching website"
+                        : "Website fetch status"}
+                </strong>
+                <p className="text-[0.78rem] text-text-2">{fetchMessage}</p>
+                {fetchedWebsiteTitle ? (
+                  <small className="font-mono text-[0.68rem] text-text-3">
+                    Page title: {fetchedWebsiteTitle}
+                  </small>
+                ) : null}
+                {fetchedWebsiteText ? (
+                  <small className="font-mono text-[0.68rem] break-words text-text-3">
+                    Preview: {fetchedWebsiteText.slice(0, 150)}...
+                  </small>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="grid gap-3">
+              <div className="flex items-start gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-gold/40 bg-gold/10 font-mono text-[0.8rem] font-semibold text-gold">
+                  2
+                </span>
+                <div>
+                  <h2 className="font-display text-[1rem] font-semibold text-text">Frameworks</h2>
+                  <p className="text-[0.8rem] text-text-3">Select the governance lens for this review.</p>
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                {frameworks
+                  .filter((framework) => framework.id !== "soc2")
+                  .map((framework) => (
+                    <label
+                      key={framework.id}
+                      className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-transparent px-2.5 py-2 transition-colors hover:border-border hover:bg-surface-strong/40"
+                    >
+                      <Checkbox
+                        checked={selected.includes(framework.id)}
+                        onCheckedChange={() => toggleFramework(framework.id)}
+                        className="mt-0.5"
+                      />
+                      <span className="grid gap-0.5">
+                        <strong className="text-[0.86rem] font-semibold text-text">{framework.label}</strong>
+                        <small className="text-[0.73rem] leading-[1.45] text-text-3">
+                          {framework.description}
+                        </small>
+                      </span>
+                    </label>
+                  ))}
+                <label className="mt-1 flex cursor-pointer items-start gap-2.5 border-t border-border/60 px-2.5 pt-3.5">
+                  <Checkbox
+                    checked={includeSecurity}
+                    onCheckedChange={() => setIncludeSecurity((value) => !value)}
+                    className="mt-0.5"
+                  />
+                  <span className="grid gap-0.5">
+                    <strong className="text-[0.86rem] font-semibold text-text">Include security controls</strong>
+                    <small className="text-[0.73rem] leading-[1.45] text-text-3">
+                      SOC 2-style evidence for access, logging, and incidents
+                    </small>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="glass-panel-soft grid gap-0.5 p-3.5" aria-live="polite">
+              <span className="font-mono text-[0.64rem] font-medium tracking-[0.18em] text-gold uppercase">
+                Review scope
+              </span>
+              <strong className="font-display text-[1.05rem] font-semibold text-text">
+                {selected.length + (includeSecurity ? 1 : 0)} frameworks active
+              </strong>
+              <small className="text-[0.74rem] text-text-3">
+                {mode === "website" ? "Public website assessment" : "Document assessment"}
+              </small>
+            </div>
+          </Card>
         </aside>
 
-        <section className="results-panel" aria-label="Compliance results">
-          <div className="results-topline">
+        <section className="grid min-w-0 gap-6" aria-label="Compliance results">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="eyebrow">Assessment report</p>
-              <h2>Compatibility by framework</h2>
+              <p className="eyebrow mb-1.5">Assessment report</p>
+              <h2 className="font-display text-[1.45rem] font-semibold tracking-[-0.01em] text-text">
+                Compatibility by framework
+              </h2>
             </div>
-            <div className="status-pill">{assessment.verdict}</div>
+            <Badge tone="gold">{assessment.verdict}</Badge>
           </div>
 
-          <div className="framework-grid">
-            {assessment.frameworkResults.map((framework) => (
-              <article key={framework.id} className="framework-card">
-                <div className="card-title">
-                  <span>{framework.short}</span>
-                  <strong>{framework.label}</strong>
-                </div>
-                <div className="meter" aria-label={`${framework.label} score ${framework.score}`}>
-                  <i style={{ width: `${framework.score}%` }} />
-                </div>
-                <div className="score-line">
-                  <b>{framework.score}%</b>
-                  <em>{framework.status}</em>
-                </div>
-                <ul>
-                  {framework.found.slice(0, 4).map((signal) => (
-                    <li key={signal.label} className={signal.present ? "present" : "missing"}>
-                      {signal.label}
-                    </li>
-                  ))}
-                </ul>
-              </article>
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(232px,1fr))]">
+            {assessment.frameworkResults.map((framework, index) => (
+              <FrameworkCard key={framework.id} framework={framework} index={index} />
             ))}
           </div>
 
-          <div className="risk-section">
-            <div className="section-heading">
+          <div className="grid gap-3.5">
+            <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <p className="eyebrow">Risk register</p>
-                <h2>Risks and mitigations</h2>
+                <p className="eyebrow mb-1.5">Risk register</p>
+                <h2 className="font-display text-[1.45rem] font-semibold tracking-[-0.01em] text-text">
+                  Risks and mitigations
+                </h2>
               </div>
-              <span>{assessment.detectedRisks.length} findings</span>
+              <span className="font-mono text-[0.74rem] text-text-3">
+                {assessment.detectedRisks.length} findings
+              </span>
             </div>
 
-            <div className="risk-list">
-              {assessment.detectedRisks.map((risk) => (
-                <article key={risk.title} className="risk-item">
-                  <div className={`severity ${risk.severity.toLowerCase()}`}>
-                    {risk.severity}
-                  </div>
-                  <div>
-                    <h3>{risk.title}</h3>
-                    <p>{risk.mitigation}</p>
-                    <div className="risk-meta">
-                      <span>Owner: {risk.owner}</span>
-                      <span>Target: {risk.due}</span>
+            <div className="grid gap-2.5">
+              {assessment.detectedRisks.map((risk, index) => (
+                <motion.article
+                  key={risk.title}
+                  initial={shouldReduceMotion ? undefined : { opacity: 0, y: 10 }}
+                  animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
+                >
+                  <Card className="flex gap-4 p-4.5">
+                    <Badge tone={severityTone(risk.severity)} size="sm" className="shrink-0 self-start">
+                      {risk.severity}
+                    </Badge>
+                    <div>
+                      <h3 className="font-display text-[1.02rem] font-semibold text-text">{risk.title}</h3>
+                      <p className="mt-1 mb-2 text-[0.82rem] text-text-2">{risk.mitigation}</p>
+                      <div className="flex flex-wrap gap-3.5">
+                        <span className="font-mono text-[0.68rem] text-text-3">Owner: {risk.owner}</span>
+                        <span className="font-mono text-[0.68rem] text-text-3">Target: {risk.due}</span>
+                      </div>
                     </div>
-                  </div>
-                </article>
+                  </Card>
+                </motion.article>
               ))}
             </div>
           </div>
 
-          <div className="official-agent">
-            <div className="section-heading">
+          <div className="grid gap-3.5">
+            <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <p className="eyebrow">Sub-agent validation</p>
-                <h2>Official Validation Agent</h2>
+                <p className="eyebrow mb-1.5">Sub-agent validation</p>
+                <h2 className="font-display text-[1.45rem] font-semibold tracking-[-0.01em] text-text">
+                  Official Validation Agent
+                </h2>
               </div>
-              <span>{officialValidation.confidence}% source confidence</span>
+              <span className="font-mono text-[0.74rem] text-text-3">
+                {officialValidation.confidence}% source confidence
+              </span>
             </div>
-            <div className="agent-summary">
-              <strong>{officialValidation.verdict}</strong>
-              <p>
+            <Card className="grid gap-1.5 border-blue/30 bg-blue/[0.04] p-4.5">
+              <strong className="font-display text-[1.05rem] font-semibold text-blue">
+                {officialValidation.verdict}
+              </strong>
+              <p className="text-[0.82rem] text-text-2">
                 This sub-agent checks the submitted URL and pasted document text
                 against official compliance sources and flags where official
                 evidence is missing.
               </p>
-            </div>
-            <div className="source-list">
+            </Card>
+            <div className="grid gap-2">
               {officialValidation.matches.map((source) => (
-                <article key={`${source.authority}-${source.title}`} className="source-item">
-                  <div>
-                    <span className={source.status === "Strong source match" ? "source-dot strong" : source.status === "Partial source match" ? "source-dot partial" : "source-dot missing"} />
-                  </div>
-                  <div>
-                    <h3>{source.authority}</h3>
-                    <p>{source.title}</p>
-                    <small>
+                <Card
+                  key={`${source.authority}-${source.title}`}
+                  soft
+                  className="flex items-start gap-3.5 p-4"
+                >
+                  <span
+                    className={cn(
+                      "mt-1.5 block h-2.5 w-2.5 shrink-0 rounded-full",
+                      source.status === "Strong source match" &&
+                        "bg-ok shadow-[0_0_8px_rgba(61,214,140,0.55)]",
+                      source.status === "Partial source match" && "bg-medium",
+                      source.status === "No direct source evidence" && "bg-text-3",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-mono text-[0.7rem] font-semibold tracking-[0.1em] text-text uppercase">
+                      {source.authority}
+                    </h3>
+                    <p className="mt-0.5 text-[0.82rem] text-text-2">{source.title}</p>
+                    <small className="text-[0.72rem] text-text-3">
                       {source.status}
                       {source.matchedTerms.length > 0
                         ? `: ${source.matchedTerms.slice(0, 3).join(", ")}`
                         : ": no official terms found in submitted text"}
                     </small>
                   </div>
-                  <a href={source.url} target="_blank" rel="noreferrer">
-                    Official source
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border-strong px-3 py-1.5 text-[0.74rem] font-semibold text-blue transition-colors hover:border-blue"
+                  >
+                    Official source <ExternalLink className="h-3 w-3" />
                   </a>
-                </article>
+                </Card>
               ))}
             </div>
           </div>
 
-          <div className="mitigation-board">
-            <article>
-              <span>01</span>
-              <h3>Evidence pack</h3>
-              <p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card soft className="p-4.5">
+              <span className="font-mono text-[0.72rem] font-semibold tracking-[0.12em] text-gold">01</span>
+              <h3 className="font-display mt-1.5 mb-1.5 text-[1rem] font-semibold text-text">Evidence pack</h3>
+              <p className="text-[0.78rem] leading-[1.55] text-text-3">
                 Gather model purpose, data lineage, risk classification, privacy
                 notice, DPIA, evaluation results, and monitoring logs.
               </p>
-            </article>
-            <article>
-              <span>02</span>
-              <h3>Control owners</h3>
-              <p>
+            </Card>
+            <Card soft className="p-4.5">
+              <span className="font-mono text-[0.72rem] font-semibold tracking-[0.12em] text-gold">02</span>
+              <h3 className="font-display mt-1.5 mb-1.5 text-[1rem] font-semibold text-text">Control owners</h3>
+              <p className="text-[0.78rem] leading-[1.55] text-text-3">
                 Assign named Legal, Security, Product, and AI Governance owners
                 for every open finding.
               </p>
-            </article>
-            <article>
-              <span>03</span>
-              <h3>Residual risk</h3>
-              <p>
+            </Card>
+            <Card soft className="p-4.5">
+              <span className="font-mono text-[0.72rem] font-semibold tracking-[0.12em] text-gold">03</span>
+              <h3 className="font-display mt-1.5 mb-1.5 text-[1rem] font-semibold text-text">Residual risk</h3>
+              <p className="text-[0.78rem] leading-[1.55] text-text-3">
                 Re-score after mitigations and record accepted residual risk
                 before production or procurement approval.
               </p>
-            </article>
+            </Card>
           </div>
         </section>
       </section>
 
-      {showPaywall ? (
-        <div className="paywall-overlay" role="dialog" aria-modal="true" aria-label="Upgrade plan">
-          <div className="paywall-card">
-            <button
-              type="button"
-              className="paywall-close"
-              onClick={() => setShowPaywall(false)}
-              aria-label="Close upgrade dialog"
-            >
-              ×
-            </button>
-            <p className="eyebrow">
-              {atFreeLimit ? "Free plan limit reached" : "Plans and pricing"}
-            </p>
-            <h2>
-              {atFreeLimit
-                ? `You've used all ${usage?.limit ?? 3} free checks.`
-                : "Check more websites and documents."}
-            </h2>
-            <p className="paywall-copy">
-              Upgrade to keep checking websites and documents against AI
-              governance frameworks with no monthly cap.
-            </p>
+      {/* ── paywall ──────────────────────────────────────────────────────── */}
+      <Dialog open={showPaywall} onOpenChange={setShowPaywall}>
+        <DialogContent aria-label="Upgrade plan">
+          <p className="eyebrow mb-1.5">
+            {atFreeLimit ? "Free plan limit reached" : "Plans and pricing"}
+          </p>
+          <DialogTitle className="font-display text-[1.55rem] font-semibold tracking-[-0.01em] text-text">
+            {atFreeLimit
+              ? `You've used all ${usage?.limit ?? 3} free checks.`
+              : "Check more websites and documents."}
+          </DialogTitle>
+          <DialogDescription className="mt-2 mb-6 max-w-[520px] text-[0.9rem] text-text-2">
+            Upgrade to keep checking websites and documents against AI
+            governance frameworks with no monthly cap.
+          </DialogDescription>
 
-            <div className="pricing-grid">
-              <article className="pricing-card">
-                <h3>Free</h3>
-                <p className="price">
-                  $0<small>/mo</small>
-                </p>
-                <ul>
-                  <li>{usage?.limit ?? 3} checks total</li>
-                  <li>All 6 governance frameworks</li>
-                  <li>Risk register &amp; mitigations</li>
-                </ul>
-                <span className="pricing-current">Current plan</span>
-              </article>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card soft className="flex flex-col gap-2.5 p-5">
+              <h3 className="font-mono text-[0.7rem] font-semibold tracking-[0.16em] text-text-3 uppercase">
+                Free
+              </h3>
+              <p className="font-display text-[2rem] font-semibold text-text">
+                $0<small className="font-sans text-[0.8rem] font-normal text-text-3">/mo</small>
+              </p>
+              <ul className="grid flex-1 gap-1.5">
+                {[`${usage?.limit ?? 3} checks total`, "All 6 governance frameworks", "Risk register & mitigations"].map(
+                  (item) => (
+                    <li key={item} className="flex items-start gap-2 text-[0.79rem] text-text-2">
+                      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" /> {item}
+                    </li>
+                  ),
+                )}
+              </ul>
+              <span className="rounded-lg border border-border py-2.5 text-center text-[0.82rem] font-semibold text-text-3">
+                Current plan
+              </span>
+            </Card>
 
-              <article className="pricing-card featured">
-                <span className="pricing-badge">Most popular</span>
-                <h3>Pro</h3>
-                <p className="price">
-                  $29<small>/mo</small>
-                </p>
-                <ul>
-                  <li>Unlimited website &amp; document checks</li>
-                  <li>Priority website fetch queue</li>
-                  <li>Priority email support</li>
-                </ul>
-                <a className="pricing-cta" href={UPGRADE_URL} target="_blank" rel="noreferrer">
-                  Upgrade to Pro
-                </a>
-              </article>
+            <Card className="glass-panel-strong relative flex flex-col gap-2.5 border-gold/60 p-5 shadow-[0_0_0_1px_rgba(233,185,78,0.35),0_18px_42px_-18px_rgba(233,185,78,0.35)]">
+              <Badge
+                tone="gold"
+                size="sm"
+                className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap px-3"
+              >
+                Most popular
+              </Badge>
+              <h3 className="font-mono text-[0.7rem] font-semibold tracking-[0.16em] text-gold uppercase">Pro</h3>
+              <p className="font-display text-[2rem] font-semibold text-text">
+                $29<small className="font-sans text-[0.8rem] font-normal text-text-3">/mo</small>
+              </p>
+              <ul className="grid flex-1 gap-1.5">
+                {["Unlimited website & document checks", "Priority website fetch queue", "Priority email support"].map(
+                  (item) => (
+                    <li key={item} className="flex items-start gap-2 text-[0.79rem] text-text-2">
+                      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" /> {item}
+                    </li>
+                  ),
+                )}
+              </ul>
+              <a
+                href={UPGRADE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonVariants({ variant: "solid", className: "w-full" })}
+              >
+                Upgrade to Pro
+              </a>
+            </Card>
 
-              <article className="pricing-card">
-                <h3>Team</h3>
-                <p className="price">Custom</p>
-                <ul>
-                  <li>Everything in Pro</li>
-                  <li>Shared workspace &amp; SSO</li>
-                  <li>API access</li>
-                </ul>
-                <a className="pricing-cta secondary" href={CONTACT_SALES_URL}>
-                  Contact sales
-                </a>
-              </article>
-            </div>
-
-            <p className="paywall-note">
-              Already upgraded? Refresh this page after payment — your plan
-              syncs automatically once it is confirmed.
-            </p>
+            <Card soft className="flex flex-col gap-2.5 p-5">
+              <h3 className="font-mono text-[0.7rem] font-semibold tracking-[0.16em] text-text-3 uppercase">Team</h3>
+              <p className="font-display text-[2rem] font-semibold text-text">Custom</p>
+              <ul className="grid flex-1 gap-1.5">
+                {["Everything in Pro", "Shared workspace & SSO", "API access"].map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-[0.79rem] text-text-2">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" /> {item}
+                  </li>
+                ))}
+              </ul>
+              <a
+                href={CONTACT_SALES_URL}
+                className={buttonVariants({ variant: "outline", className: "w-full" })}
+              >
+                Contact sales
+              </a>
+            </Card>
           </div>
-        </div>
-      ) : null}
+
+          <p className="mt-4.5 text-center text-[0.74rem] text-text-3">
+            Already upgraded? Refresh this page after payment — your plan
+            syncs automatically once it is confirmed.
+          </p>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
