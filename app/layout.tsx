@@ -1,77 +1,31 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Newsreader } from "next/font/google";
+import { JetBrains_Mono, Schibsted_Grotesk } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-});
-
-const newsreader = Newsreader({
-  variable: "--font-display",
-  subsets: ["latin"],
-  style: ["normal", "italic"],
-});
+const sans = Schibsted_Grotesk({ variable: "--font-sans", subsets: ["latin"], weight: ["400", "500", "600", "700"] });
+const mono = JetBrains_Mono({ variable: "--font-mono", subsets: ["latin"], weight: ["400", "500"] });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
-  const metadataBase = new URL(host ? `${protocol}://${host}` : "https://localhost:3000");
-
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const protocol = h.get("x-forwarded-proto") ?? "https";
+  const metadataBase = new URL(host ? `${protocol}://${host}` : "https://www.euactanalyzer.com");
+  const description = "Point at a page or paste a policy. In seconds you get a readiness score, per-framework evidence and a prioritised fix list — grounded in the EU AI Act, GDPR, ISO 42001 and NIST AI RMF.";
   return {
     metadataBase,
-    title: {
-      default: "AI Governance Compatibility Checker",
-      template: "%s | AI Governance Compatibility Checker",
-    },
-    description:
-      "Check websites, policies, and document text against the EU AI Act, GDPR, ISO 42001, NIST AI RMF, and security controls.",
-    icons: {
-      icon: "/favicon.svg",
-      shortcut: "/favicon.svg",
-    },
-    openGraph: {
-      title: "AI Governance Compatibility Checker",
-      description:
-        "EU AI Act, GDPR, ISO 42001, NIST AI RMF, risks, and mitigations in one practical review.",
-      images: [
-        {
-          url: "/og.png",
-          width: 1200,
-          height: 630,
-          alt: "AI Governance Compatibility Checker dashboard preview",
-        },
-      ],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: "AI Governance Compatibility Checker",
-      description:
-        "Check AI governance compatibility and turn risk findings into mitigations.",
-      images: ["/og.png"],
-    },
+    title: { default: "GovCheck — AI governance with an edge", template: "%s | GovCheck" },
+    description,
+    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+    openGraph: { title: "GovCheck — AI governance with an edge", description, images: [{ url: "/og.png", width: 1200, height: 630, alt: "GovCheck" }] },
+    twitter: { card: "summary_large_image", title: "GovCheck — AI governance with an edge", description, images: ["/og.png"] },
   };
 }
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body
-        className={`${inter.variable} ${jetbrainsMono.variable} ${newsreader.variable} antialiased`}
-      >
-        {children}
-      </body>
+      <body className={`${sans.variable} ${mono.variable}`}>{children}</body>
     </html>
   );
 }

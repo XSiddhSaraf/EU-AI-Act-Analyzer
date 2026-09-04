@@ -50,6 +50,8 @@ test("D1 migration for usage metering is generated and bundled", async () => {
   assert.match(combined, /stripe_subscription_id/);
   assert.match(combined, /payment_provider/);
   assert.match(combined, /razorpay_subscription_id/);
+  assert.match(combined, /bonus_checks/);
+  assert.match(combined, /last_check_pack_order_id/);
 
   assert.equal(
     await exists("dist/.openai/drizzle/meta/_journal.json"),
@@ -65,6 +67,8 @@ test("self-hosted bootstrap SQL stays in sync with the Drizzle schema", async ()
   assert.match(dbIndex, /stripe_subscription_id/);
   assert.match(dbIndex, /payment_provider/);
   assert.match(dbIndex, /razorpay_subscription_id/);
+  assert.match(dbIndex, /bonus_checks/);
+  assert.match(dbIndex, /last_check_pack_order_id/);
 });
 
 test("Stripe billing is wired end to end, with a manual-plan fallback", async () => {
@@ -76,7 +80,7 @@ test("Stripe billing is wired end to end, with a manual-plan fallback", async ()
   ]);
 
   assert.match(checker, /\/api\/stripe\/portal/);
-  assert.match(checker, /Sign in to upgrade/);
+  assert.match(checker, /Sign in and upgrade/);
   assert.match(webhookRoute, /constructEvent/, "webhook must verify the Stripe signature");
   assert.match(webhookRoute, /checkout\.session\.completed/);
   assert.match(webhookRoute, /customer\.subscription\.deleted/);
@@ -113,6 +117,37 @@ test("Razorpay billing is wired end to end, unified with Stripe checkout", async
   assert.match(schema, /paymentProvider/);
 });
 
+test("one-time Razorpay Standard Checkout (extra checks pack) backend is intact", async () => {
+  // Note: the current UI (GovCheck redesign, app/compliance-checker.tsx) does
+  // not yet surface this feature — it predates the redesign and was
+  // intentionally left unwired for now. These assertions cover the backend
+  // routes/schema only, so the feature can be re-surfaced in the UI later
+  // without silently regressing in the meantime.
+  const [createOrderRoute, verifyRoute, usageRoute, consumeRoute, checkPackLib, schema] = await Promise.all([
+    readFile(new URL("app/api/one-time/create-order/route.ts", root), "utf8"),
+    readFile(new URL("app/api/one-time/verify/route.ts", root), "utf8"),
+    readFile(new URL("app/api/usage/route.ts", root), "utf8"),
+    readFile(new URL("app/api/usage/consume/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/check-pack.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+  ]);
+
+  assert.match(createOrderRoute, /getCurrentUser/, "order creation must require sign-in");
+  assert.match(createOrderRoute, /orders\.create/, "must use the Orders API, not Subscriptions");
+  assert.match(createOrderRoute, /status: 401/, "must reject anonymous callers");
+  assert.match(createOrderRoute, /status: 500/, "must surface Razorpay API errors as 500");
+  assert.match(verifyRoute, /createHmac/, "must verify HMAC-SHA256(order_id|payment_id)");
+  assert.match(verifyRoute, /timingSafeEqual/, "signature comparison must be timing-safe");
+  assert.match(verifyRoute, /status: 400/, "signature mismatch must not be treated as paid");
+  assert.match(verifyRoute, /orders\.fetch/, "must confirm order ownership before crediting");
+  assert.match(verifyRoute, /lastCheckPackOrderId/, "must be idempotent against repeat verification calls");
+  assert.match(usageRoute, /bonusChecks/, "usage route must expose the purchased bonus checks balance");
+  assert.match(consumeRoute, /bonusChecks/, "consume gating must count bonus checks toward the limit");
+  assert.match(checkPackLib, /CHECK_PACK_SIZE/);
+  assert.match(schema, /bonusChecks/);
+  assert.match(schema, /lastCheckPackOrderId/);
+});
+
 test("smart analysis (LLM-powered) is wired end to end, with a static fallback", async () => {
   const [checker, analyzeRoute, knowledgeBase, regulatorySources] = await Promise.all([
     readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
@@ -129,7 +164,7 @@ test("smart analysis (LLM-powered) is wired end to end, with a static fallback",
   assert.match(regulatorySources, /eur-lex\.europa\.eu/);
 });
 
-test("home page renders the AI Governance Compatibility Checker, not the starter skeleton", async () => {
+test("home page renders the GovCheck compliance checker, not the starter skeleton", async () => {
   const [page, layout, checker] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
@@ -138,8 +173,8 @@ test("home page renders the AI Governance Compatibility Checker, not the starter
 
   assert.match(page, /ComplianceChecker/);
   assert.doesNotMatch(page, /SkeletonPreview|codex-preview/);
-  assert.match(layout, /AI Governance Compatibility Checker/);
-  assert.match(checker, /Check a website or document against the EU AI Act/);
+  assert.match(layout, /GovCheck/);
+  assert.match(checker, /AI governance with an edge/);
   assert.match(checker, /EU AI Act/);
   assert.match(checker, /GDPR/);
   assert.match(checker, /ISO\/IEC 42001/);
@@ -169,7 +204,7 @@ test("free-tier usage metering (3 free checks) is wired end to end", async () =>
   assert.match(consumeRoute, /free_limit_reached/);
 
   // UI: usage meter, gated run button, and the upgrade/paywall panel.
-  assert.match(checker, /free checks used/);
+  assert.match(checker, /free checks/i);
   assert.match(checker, /showPaywall/);
   assert.match(checker, /\/api\/usage\/consume/);
   assert.match(checker, /Upgrade to Pro/);

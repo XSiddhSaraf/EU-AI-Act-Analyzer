@@ -1,234 +1,57 @@
 @import "tailwindcss";
 
-/* ════════════════════════════════════════════════════════════════════════════
-   AI GOVERNANCE COMPATIBILITY CHECKER — "Cyber Governance" glass design system
-   Frosted-glass panels floating over a deep navy field, gold + blue accents.
-   Newsreader (display) · Inter (UI) · JetBrains Mono (data, references, eyebrows).
-   One severity scale used identically everywhere.
-   ════════════════════════════════════════════════════════════════════════════ */
-
+/* GovCheck — electric blue on paper. Schibsted Grotesk (UI) · JetBrains Mono (labels). */
 :root {
-  /* base field */
-  --bg: #05070f;
-  --bg-2: #0a0f1e;
-
-  /* glass surfaces — alpha is applied via Tailwind's /NN opacity modifiers */
-  --surface: #101a34;
-  --surface-strong: #17233f;
-  --surface-soft: #0c1226;
-  --border: #3a4a78;
-  --border-strong: #52679e;
-
-  /* text */
-  --text: #edf1fa;
-  --text-2: #a8b3cf;
-  --text-3: #6b7694;
-
-  /* brand accents */
-  --gold: #e9b94e;
-  --gold-soft: #f5d183;
-  --blue: #5b8def;
-
-  /* semantic severity scale — the ONLY status colors in the app */
-  --critical: #f0546c;
-  --high: #f59e4c;
-  --medium: #d9b94f;
-  --low: #7c9cf5;
-  --ok: #3dd68c;
-
-  --blur: 22px;
-  --radius: 18px;
-  --radius-sm: 12px;
-  --shadow-glass: 0 24px 64px rgba(2, 4, 10, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --ink: #0b0f19;
+  --blue: #0e76ff;
+  --blue-dark: #0a54b8;
+  --paper: #f3f3f3;
 }
 
-@theme inline {
-  --color-bg: var(--bg);
-  --color-bg-2: var(--bg-2);
-  --color-surface: var(--surface);
-  --color-surface-strong: var(--surface-strong);
-  --color-surface-soft: var(--surface-soft);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-text: var(--text);
-  --color-text-2: var(--text-2);
-  --color-text-3: var(--text-3);
-  --color-gold: var(--gold);
-  --color-gold-soft: var(--gold-soft);
-  --color-blue: var(--blue);
-  --color-critical: var(--critical);
-  --color-high: var(--high);
-  --color-medium: var(--medium);
-  --color-low: var(--low);
-  --color-ok: var(--ok);
-
-  --color-background: var(--bg);
-  --color-foreground: var(--text);
-
-  /* --font-sans / --font-mono are intentionally left at Tailwind's
-     defaults here: layout.tsx's next/font hooks set --font-sans,
-     --font-mono, and --font-display directly on <body> with real
-     (non-cyclic) values, which override Tailwind's :root defaults for
-     every element inside body via normal CSS inheritance. Re-declaring
-     --font-sans: var(--font-sans) here would create a genuine CSS
-     custom-property cycle, so it's deliberately omitted. */
-}
-
-/* ── base ──────────────────────────────────────────────────────────────────── */
-* {
-  box-sizing: border-box;
-}
-
-html {
-  background: var(--bg);
-  color-scheme: dark;
-}
-
+* { box-sizing: border-box; }
+html { background: var(--paper); color-scheme: light; scroll-behavior: smooth; }
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  line-height: 1.55;
   margin: 0;
-  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+a { color: var(--blue); text-decoration: none; }
+a:hover { color: var(--blue-dark); }
+button, input, textarea { color: inherit; font: inherit; }
+::selection { background: rgba(14, 118, 255, .18); }
+:is(a, button, input, textarea, [role="button"]):focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
-::selection {
-  background: rgba(233, 185, 78, 0.3);
+/* fields */
+.gc-field {
+  background: var(--paper);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  outline: none;
 }
+.gc-field:focus { border-color: var(--blue); background: #fff; }
 
-button,
-input,
-textarea {
-  color: inherit;
-  font: inherit;
+/* hover states for pill buttons */
+.gc-btn-solid:hover:not(:disabled) { background: var(--blue-dark) !important; color: #fff !important; }
+.gc-btn-outline:hover { border-color: var(--ink) !important; color: var(--ink) !important; }
+.gc-faq:hover { color: var(--blue) !important; }
+header nav a:hover { color: var(--blue); }
+
+/* motion */
+@keyframes gc-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes gc-spin { to { transform: rotate(360deg); } }
+.gc-rise { animation: gc-rise .5s ease-out both; }
+.gc-spin { animation: gc-spin .8s linear infinite; }
+
+@media (max-width: 720px) {
+  .gc-nav { display: none !important; }
 }
-
-button {
-  cursor: pointer;
+@media print {
+  header, footer, #why, #frameworks, #faq, .gc-hero { display: none !important; }
 }
-
-:is(a, button, input, textarea, [role="button"]):focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 2px;
-}
-
-/* ── ambient field ─────────────────────────────────────────────────────────── */
-.app-shell {
-  isolation: isolate;
-  overflow: clip;
-  position: relative;
-}
-
-.ambient-glow {
-  background:
-    radial-gradient(900px 460px at 82% -10%, rgba(91, 141, 239, 0.16), transparent 65%),
-    radial-gradient(760px 420px at 4% 4%, rgba(233, 185, 78, 0.12), transparent 60%),
-    radial-gradient(820px 520px at 46% 118%, rgba(61, 214, 140, 0.06), transparent 60%);
-  inset: 0;
-  pointer-events: none;
-  position: fixed;
-  z-index: -1;
-}
-
-/* Newsreader has no Tailwind default namespace, so it's a plain class
-   (not a @theme entry) to avoid any custom-property self-reference. */
-.font-display {
-  font-family: var(--font-display), Georgia, serif;
-}
-
-/* eyebrow label used everywhere */
-.eyebrow {
-  color: var(--gold);
-  font-family: var(--font-mono);
-  font-size: 0.69rem;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-/* ── glass surfaces ────────────────────────────────────────────────────────── */
-.glass-panel {
-  background: color-mix(in srgb, var(--surface) 52%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-glass);
-  backdrop-filter: blur(var(--blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(140%);
-}
-
-.glass-panel-soft {
-  background: color-mix(in srgb, var(--surface-soft) 58%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  border-radius: var(--radius-sm);
-  backdrop-filter: blur(14px) saturate(130%);
-  -webkit-backdrop-filter: blur(14px) saturate(130%);
-}
-
-.glass-panel-strong {
-  background: color-mix(in srgb, var(--surface-strong) 78%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--border-strong) 85%, transparent) !important;
-  box-shadow: var(--shadow-glass);
-}
-
-/* ── score ring — conic-gradient readiness dial ───────────────────────────── */
-.score-ring {
-  --score: 0;
-  align-items: center;
-  aspect-ratio: 1;
-  background:
-    radial-gradient(closest-side, color-mix(in srgb, var(--surface) 80%, transparent) 76%, transparent 77% 100%),
-    conic-gradient(var(--gold) calc(var(--score) * 1%), color-mix(in srgb, var(--border) 55%, transparent) 0);
-  border-radius: 50%;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  justify-content: center;
-}
-
-/* ── linear meter bar (usage meter, framework score bars) ─────────────────── */
-.meter-track {
-  background: color-mix(in srgb, var(--border) 45%, transparent);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.meter-fill {
-  background: linear-gradient(90deg, var(--blue), var(--gold));
-  border-radius: inherit;
-  display: block;
-}
-
-/* ── severity / status badge (used outside the Badge component too) ──────── */
-.severity-critical {
-  background: color-mix(in srgb, var(--critical) 12%, transparent);
-  border-color: color-mix(in srgb, var(--critical) 45%, transparent);
-  color: var(--critical);
-}
-
-.severity-high {
-  background: color-mix(in srgb, var(--high) 12%, transparent);
-  border-color: color-mix(in srgb, var(--high) 45%, transparent);
-  color: var(--high);
-}
-
-.severity-medium {
-  background: color-mix(in srgb, var(--medium) 12%, transparent);
-  border-color: color-mix(in srgb, var(--medium) 45%, transparent);
-  color: var(--medium);
-}
-
-.severity-low {
-  background: color-mix(in srgb, var(--low) 12%, transparent);
-  border-color: color-mix(in srgb, var(--low) 45%, transparent);
-  color: var(--low);
-}
-
-/* ── accessibility ─────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
-  }
+  * { animation: none !important; transition: none !important; }
 }
