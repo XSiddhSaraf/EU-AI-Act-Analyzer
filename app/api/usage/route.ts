@@ -13,6 +13,7 @@ export async function GET() {
   let used = 0;
   let plan = "free";
   let paymentProvider = "";
+  let bonusChecks = 0;
   let degraded = false;
 
   try {
@@ -33,6 +34,9 @@ export async function GET() {
     // Tells the client whether "Manage billing" should open the Stripe
     // portal or offer a direct cancel action (Razorpay has no portal).
     paymentProvider = planRows[0]?.paymentProvider ?? "";
+    // One-time-purchased checks (see app/api/one-time/*), stacked on top of
+    // FREE_CHECK_LIMIT regardless of plan.
+    bonusChecks = planRows[0]?.bonusChecks ?? 0;
   } catch {
     // Metering table not provisioned yet in this environment (e.g. before
     // the first deploy applies the generated D1 migration). Degrade
@@ -41,14 +45,16 @@ export async function GET() {
   }
 
   const unlimited = plan !== "free";
-  const remaining = unlimited ? null : Math.max(0, FREE_CHECK_LIMIT - used);
+  const limit = FREE_CHECK_LIMIT + bonusChecks;
+  const remaining = unlimited ? null : Math.max(0, limit - used);
 
   const response = Response.json({
     accountType: isAuthenticated ? "account" : "device",
     plan,
     paymentProvider,
     used,
-    limit: FREE_CHECK_LIMIT,
+    limit,
+    bonusChecks,
     remaining,
     unlimited,
     degraded,

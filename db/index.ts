@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS account_plans (
   stripe_customer_id text DEFAULT '' NOT NULL,
   stripe_subscription_id text DEFAULT '' NOT NULL,
   razorpay_subscription_id text DEFAULT '' NOT NULL,
+  bonus_checks integer DEFAULT 0 NOT NULL,
+  last_check_pack_order_id text DEFAULT '' NOT NULL,
   updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 CREATE TABLE IF NOT EXISTS usage_events (
@@ -55,6 +57,8 @@ const ADD_COLUMN_STATEMENTS = [
   "ALTER TABLE account_plans ADD COLUMN stripe_customer_id text DEFAULT '' NOT NULL",
   "ALTER TABLE account_plans ADD COLUMN stripe_subscription_id text DEFAULT '' NOT NULL",
   "ALTER TABLE account_plans ADD COLUMN razorpay_subscription_id text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN bonus_checks integer DEFAULT 0 NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN last_check_pack_order_id text DEFAULT '' NOT NULL",
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

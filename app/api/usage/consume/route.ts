@@ -37,6 +37,10 @@ export async function POST(request: Request) {
       .limit(1);
     const plan = planRows[0]?.plan ?? "free";
     const paymentProvider = planRows[0]?.paymentProvider ?? "";
+    // One-time-purchased checks (see app/api/one-time/*), stacked on top of
+    // FREE_CHECK_LIMIT regardless of plan.
+    const bonusChecks = planRows[0]?.bonusChecks ?? 0;
+    const limit = FREE_CHECK_LIMIT + bonusChecks;
     const unlimited = plan !== "free";
 
     const usedRows = await db
@@ -45,14 +49,14 @@ export async function POST(request: Request) {
       .where(eq(usageEvents.subject, subject));
     const used = Number(usedRows[0]?.value ?? 0);
 
-    if (!unlimited && used >= FREE_CHECK_LIMIT) {
+    if (!unlimited && used >= limit) {
       return withCookie(
         Response.json(
           {
             allowed: false,
             plan,
             used,
-            limit: FREE_CHECK_LIMIT,
+            limit,
             remaining: 0,
             unlimited: false,
             reason: "free_limit_reached",
@@ -71,8 +75,8 @@ export async function POST(request: Request) {
         plan,
         paymentProvider,
         used: nextUsed,
-        limit: FREE_CHECK_LIMIT,
-        remaining: unlimited ? null : Math.max(0, FREE_CHECK_LIMIT - nextUsed),
+        limit,
+        remaining: unlimited ? null : Math.max(0, limit - nextUsed),
         unlimited,
       }),
     );

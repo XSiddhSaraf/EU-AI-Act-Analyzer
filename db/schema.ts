@@ -33,6 +33,14 @@ export const accountPlans = sqliteTable("account_plans", {
   // Set once a subject completes Razorpay Checkout; used by /api/billing/cancel
   // and by /api/razorpay/webhook to find the right row on subscription events.
   razorpaySubscriptionId: text("razorpay_subscription_id").notNull().default(""),
+  // Extra one-time-purchased checks (Razorpay Orders/Standard Checkout, see
+  // app/api/one-time/*), on top of FREE_CHECK_LIMIT. Independent of `plan` —
+  // a free-tier subject can stack bonus checks without subscribing to Pro.
+  bonusChecks: integer("bonus_checks").notNull().default(0),
+  // The last Razorpay order id credited toward bonusChecks, so re-submitting
+  // /api/one-time/verify for an already-processed order (e.g. a retried
+  // request) doesn't double-credit the same payment.
+  lastCheckPackOrderId: text("last_check_pack_order_id").notNull().default(""),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

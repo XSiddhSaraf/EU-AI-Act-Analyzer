@@ -203,6 +203,32 @@ given deployment.
   and falls back to Stripe (then to the mailto link), matching this
   project's existing fail-open conventions.
 
+### One-time check pack (Razorpay Standard Checkout)
+
+For visitors who don't want a recurring subscription, the paywall also
+offers a one-time pack of `CHECK_PACK_SIZE` (10) extra checks for
+`CHECK_PACK_PRICE_USD_CENTS` ($9.00) — see `app/lib/check-pack.ts`. This
+uses Razorpay's **Orders API** (Standard Checkout), a different product
+from the Subscriptions API above, reusing the same `RAZORPAY_KEY_ID`/
+`RAZORPAY_KEY_SECRET`.
+
+- **`POST /api/one-time/create-order`**: requires sign-in; creates a
+  Razorpay Order and returns its id plus the public Key Id for the client
+  to open Razorpay's inline checkout modal (`order_id` instead of
+  `subscription_id`).
+- **`POST /api/one-time/verify`**: verifies `razorpay_signature` as
+  `HMAC-SHA256(order_id + "|" + payment_id, RAZORPAY_KEY_SECRET)` — a
+  signature mismatch is rejected and nothing is credited. On success, also
+  fetches the order back from Razorpay to confirm its `notes.subject`
+  matches the signed-in caller (preventing one account from replaying
+  another's order id), then credits `CHECK_PACK_SIZE` onto
+  `account_plans.bonusChecks`, tracking the last-processed order id
+  (`lastCheckPackOrderId`) so a retried verification call doesn't
+  double-credit the same payment.
+- **`bonusChecks`** stacks on top of `FREE_CHECK_LIMIT` in both
+  `GET /api/usage` and `POST /api/usage/consume`, independent of `plan` —
+  a free-tier subject can buy extra checks without subscribing to Pro.
+
 ## Sign in with Google or Microsoft
 
 Authentication is handled by [Auth.js core](https://authjs.dev) (`@auth/core`)
