@@ -624,8 +624,12 @@ export function ComplianceChecker() {
               <p style={{ margin: 0, fontSize: 16, color: muted(0.65) }}>Unlimited checks, AI-powered analysis and a history of every run.</p>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 16 }}>
-              {[["Free", "$0", "3 checks a month · baseline heuristic", PAPER, INK], ["Pro", "$11", "Unlimited checks · AI analysis · history", BLUE, "#fff"], ["Team", "Custom", "Shared workspace · SSO · audit export", INK, "#fff"]].map(([n, price, d, bg, fg]) => (
-                <div key={n} style={{ background: bg, color: fg, borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 6 }}><h3 style={{ margin: 0, fontSize: 14, fontFamily: MONO, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 500 }}>{n}</h3><p style={{ margin: 0, fontSize: 40, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>{price}{n === "Pro" && <span style={{ fontSize: 14, letterSpacing: 0, fontWeight: 400, opacity: 0.8 }}> / mo</span>}</p><p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.8 }}>{d}</p></div>
+              {[
+                ["Free", "$0", "3 checks a month · baseline heuristic", PAPER, INK, ""],
+                ["Pro", "₹999", "Unlimited checks · AI analysis · history", BLUE, "#fff", "~$11 for international cards"],
+                ["Team", "Custom", "Shared workspace · SSO · audit export", INK, "#fff", ""],
+              ].map(([n, price, d, bg, fg, note]) => (
+                <div key={n} style={{ background: bg, color: fg, borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 6 }}><h3 style={{ margin: 0, fontSize: 14, fontFamily: MONO, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 500 }}>{n}</h3><p style={{ margin: 0, fontSize: 40, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>{price}{n === "Pro" && <span style={{ fontSize: 14, letterSpacing: 0, fontWeight: 400, opacity: 0.8 }}> / mo</span>}</p>{note ? <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>{note}</p> : null}<p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.8 }}>{d}</p></div>
               ))}
             </div>
             {billingMessage && <p style={{ margin: 0, fontFamily: MONO, fontSize: 12, color: muted(0.55) }}>{billingMessage}</p>}
