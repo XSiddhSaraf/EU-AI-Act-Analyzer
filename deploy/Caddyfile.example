@@ -1,7 +1,17 @@
 # Reverse proxy with automatic HTTPS (Let's Encrypt).
-# Replace checker.yourdomain.com with your real domain (A record -> VPS IP),
-# copy to /etc/caddy/Caddyfile, then: sudo systemctl reload caddy
-checker.yourdomain.com {
+# Replace yourdomain.com with your real domain (A records -> VPS IP for both
+# the apex and www), copy to /etc/caddy/Caddyfile, then:
+#   sudo systemctl reload caddy
+#
+# Picks www as the canonical host and 301-redirects the apex domain to it,
+# so search engines don't see the same content on two hostnames. If DNS is
+# proxied through Cloudflare (orange-cloud), do this redirect as a
+# Cloudflare Redirect Rule instead — Caddy never sees the apex request in
+# that setup, so this block would be a no-op.
+yourdomain.com {
+    redir https://www.yourdomain.com{uri} permanent
+}
+www.yourdomain.com {
     reverse_proxy localhost:3000
     encode gzip
 }

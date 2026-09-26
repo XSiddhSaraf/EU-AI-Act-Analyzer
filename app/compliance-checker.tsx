@@ -4,6 +4,7 @@ import type { ChangeEvent, CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Hero3D } from "./components/hero-3d";
 import { PropIllo } from "./components/prop-illo";
+import { FAQS } from "./lib/faq-data";
 import { sourcesForFrameworks, type FrameworkId } from "./lib/regulatory-sources";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -112,13 +113,6 @@ const PROPS = [
   { kind: "layers", title: "Instant baseline, smarter follow-up", body: "A fast heuristic scores your source in under a second. When AI analysis is available it upgrades the same view in place, and it never blocks the result." },
   { kind: "backlog", title: "Fixes, not findings", body: "Each gap becomes a mitigation with an owner and a due date, written to drop straight onto a product or engineering backlog." },
 ] as const;
-const FAQS: Array<[string, string]> = [
-  ["What can I check?", "A public web page by URL, or a document — paste text or upload .pdf, .docx, .pptx or .txt. Policies, DPIAs, model cards, privacy notices and product documentation all work."],
-  ["Is this legal advice?", "No. The checker maps evidence in your text to framework obligations and flags gaps. It helps you prepare for a review; it does not replace counsel or a conformity assessment."],
-  ["What is the free tier?", "Three checks a month with the baseline heuristic, no account needed. Pro adds unlimited checks, AI-powered analysis and a history of every run."],
-  ["How current are the sources?", "Official texts are fetched and cached with a content hash. They refresh daily, and any source older than a week is refreshed before your next AI-powered check."],
-  ["Do you store my documents?", "Website mode reads public page text only. Document text is used for the check and is not retained beyond it."],
-];
 const STAGE_LABELS = ["Reading the source", "Mapping evidence to frameworks", "Checking against official texts", "Running AI analysis"];
 const SEV_W: Record<Severity, number> = { Critical: 4, High: 3, Medium: 2, Low: 1 };
 const countMatches = (text: string, terms: string[]) => terms.reduce((n, t) => n + (text.includes(t.toLowerCase()) ? 1 : 0), 0);

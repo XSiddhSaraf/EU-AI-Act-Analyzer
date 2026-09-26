@@ -12,13 +12,18 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = h.get("x-forwarded-proto") ?? "https";
   const metadataBase = new URL(host ? `${protocol}://${host}` : "https://www.euactanalyzer.com");
   const description = "Point at a page or paste a policy. In seconds you get a readiness score, per-framework evidence and a prioritised fix list — grounded in the EU AI Act, GDPR, ISO 42001 and NIST AI RMF.";
+  // The default/OG/Twitter titles lead with the search phrase people
+  // actually type ("EU AI Act Compliance Checker"), with "GovCheck" once
+  // at the end — the per-page title in app/page.tsx combines with the
+  // "%s | GovCheck" template below the same way.
+  const seoTitle = "EU AI Act Compliance Checker – Free Readiness Score | GovCheck";
   return {
     metadataBase,
-    title: { default: "GovCheck — AI governance with an edge", template: "%s | GovCheck" },
+    title: { default: seoTitle, template: "%s | GovCheck" },
     description,
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-    openGraph: { title: "GovCheck — AI governance with an edge", description, images: [{ url: "/og.png", width: 1200, height: 630, alt: "GovCheck" }] },
-    twitter: { card: "summary_large_image", title: "GovCheck — AI governance with an edge", description, images: ["/og.png"] },
+    openGraph: { title: seoTitle, description, images: [{ url: "/og.png", width: 1200, height: 630, alt: "GovCheck" }] },
+    twitter: { card: "summary_large_image", title: seoTitle, description, images: ["/og.png"] },
   };
 }
 

@@ -1,0 +1,36 @@
+# https://www.euactanalyzer.com/robots.txt
+User-agent: *
+Allow: /
+
+# AI/LLM crawlers — explicitly welcomed so tools like ChatGPT, Claude, and
+# Perplexity can read and cite this site. Note: if requests from these
+# crawlers are still blocked upstream (e.g. by a Cloudflare bot-management
+# rule), this file alone won't fix that — check Cloudflare > Security > Bots.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://www.euactanalyzer.com/sitemap.xml
