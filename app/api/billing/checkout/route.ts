@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { accountPlans } from "../../../../db/schema";
 import { getCurrentUser } from "../../../auth";
+import { describeError } from "../../../lib/errors";
 import { getRazorpay } from "../../../lib/razorpay";
 import { getStripe } from "../../../lib/stripe";
 
@@ -52,8 +53,7 @@ export async function POST(request: Request): Promise<Response> {
       };
       return Response.json(response);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return Response.json({ ok: false, reason: message } satisfies BillingCheckoutResponse);
+      return Response.json({ ok: false, reason: describeError(error) } satisfies BillingCheckoutResponse);
     }
   }
 
@@ -87,8 +87,7 @@ export async function POST(request: Request): Promise<Response> {
 
       return Response.json({ ok: true, provider: "stripe", url: session.url } satisfies BillingCheckoutResponse);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      return Response.json({ ok: false, reason: message } satisfies BillingCheckoutResponse);
+      return Response.json({ ok: false, reason: describeError(error) } satisfies BillingCheckoutResponse);
     }
   }
 

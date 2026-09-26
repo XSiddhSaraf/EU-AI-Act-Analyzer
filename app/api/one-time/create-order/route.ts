@@ -1,5 +1,6 @@
 import { getCurrentUser } from "../../../auth";
 import { CHECK_PACK_CURRENCY, CHECK_PACK_PRICE_USD_CENTS, CHECK_PACK_SIZE } from "../../../lib/check-pack";
+import { describeError } from "../../../lib/errors";
 import { getRazorpay } from "../../../lib/razorpay";
 
 // Razorpay's minimum order amount, in the smallest currency unit.
@@ -61,7 +62,6 @@ export async function POST(): Promise<Response> {
     };
     return Response.json(response);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ ok: false, reason: message } satisfies CreateOrderResponse, { status: 500 });
+    return Response.json({ ok: false, reason: describeError(error) } satisfies CreateOrderResponse, { status: 500 });
   }
 }

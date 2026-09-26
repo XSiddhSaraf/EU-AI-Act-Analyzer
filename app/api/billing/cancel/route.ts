@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { accountPlans } from "../../../../db/schema";
 import { getCurrentUser } from "../../../auth";
+import { describeError } from "../../../lib/errors";
 import { getRazorpay } from "../../../lib/razorpay";
 import { getStripe } from "../../../lib/stripe";
 
@@ -63,7 +64,6 @@ export async function POST() {
 
     return Response.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ ok: false, reason: message });
+    return Response.json({ ok: false, reason: describeError(error) });
   }
 }

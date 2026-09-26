@@ -4,6 +4,7 @@ import { getDb } from "../../../../db";
 import { accountPlans } from "../../../../db/schema";
 import { getCurrentUser } from "../../../auth";
 import { CHECK_PACK_SIZE } from "../../../lib/check-pack";
+import { describeError } from "../../../lib/errors";
 import { getRazorpay } from "../../../lib/razorpay";
 
 export type VerifyOrderResponse =
@@ -103,7 +104,6 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json({ ok: true, bonusChecks: nextBonusChecks } satisfies VerifyOrderResponse);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ ok: false, reason: message } satisfies VerifyOrderResponse, { status: 500 });
+    return Response.json({ ok: false, reason: describeError(error) } satisfies VerifyOrderResponse, { status: 500 });
   }
 }
