@@ -64,7 +64,7 @@ generated `drizzle/` folder; the Sites host applies it on deploy.
 
 By default, checks are scored with a fast, free, static keyword heuristic
 (`signalMap`/`riskPatterns` in `app/compliance-checker.tsx`). Set
-`GEMINI_API_KEY` to additionally run a real Gemini-powered analysis that
+`OPENAI_API_KEY` to additionally run a real OpenAI-powered analysis that
 replaces the heuristic's results in the UI when it succeeds — the heuristic
 still renders first/instantly and remains the fallback if the smart call is
 unavailable, slow, or fails (nothing ever breaks the "Run check" flow).
@@ -83,14 +83,15 @@ unavailable, slow, or fails (nothing ever breaks the "Run check" flow).
   by `ADMIN_TOKEN`) re-fetches every source immediately, e.g. right after a
   known regulatory update.
 - **Analysis**: `POST /api/analyze-smart` sends the cached knowledge base
-  (as the Gemini system instruction, relying on Gemini 2.5+/3+ models'
-  automatic implicit prompt caching for repeat requests) plus the submitted
-  content to Gemini, requests structured JSON output, and validates the
-  response with `zod` before using it.
-- **Cost**: this uses the real Google Gemini API and is not free. Model
-  defaults to `gemini-3-pro-preview`; override with `GEMINI_MODEL` (e.g.
-  `gemini-2.5-flash`) to trade quality for cost. It's covered by the same
-  free-tier check limit as everything else — no separate metering.
+  (as the OpenAI system message, relying on OpenAI's automatic prompt
+  caching for repeat requests) plus the submitted content to OpenAI, using
+  Structured Outputs (`response_format: json_schema`, `strict: true`) so the
+  response is guaranteed to match the expected schema, then validates it
+  again with `zod` before using it.
+- **Cost**: this uses the real OpenAI API and is not free. Model defaults to
+  `gpt-4o-mini`; override with `OPENAI_MODEL` to use a different model (must
+  support Structured Outputs). It's covered by the same free-tier check
+  limit as everything else — no separate metering.
 - **Document formats**: `.pptx`/`.docx`/`.pdf` uploads are extracted
   server-side via `POST /api/extract-document` (using `officeparser`);
   `.txt`/`.md`/`.csv`/`.json` are still read directly in the browser.

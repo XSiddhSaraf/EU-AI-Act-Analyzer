@@ -1,28 +1,27 @@
-import { ApiError, GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import { z } from "zod";
 import { getKnowledgeBaseContext } from "../../lib/knowledge-base";
 import { sourcesForFrameworks, type FrameworkId } from "../../lib/regulatory-sources";
 
-// Best available reasoning-tier model per Google's own SDK guidance for
-// coding/complex-reasoning tasks — this is a structured, multi-framework
-// compliance extraction task, not a simple lookup, so we default to the
-// flagship tier rather than silently downgrading for cost (matches this
-// project's existing convention for the LLM provider — see GEMINI_MODEL
-// below to override).
-const DEFAULT_MODEL = "gemini-3-pro-preview";
+// gpt-4o-mini is the strongest fit for this workload: it's cheap/fast and,
+// unlike the other providers this project has used, supports *strict*
+// Structured Outputs — the model is constrained at decode time to emit JSON
+// that exactly matches the schema below, so we don't need best-effort JSON
+// parsing/repair. Override via OPENAI_MODEL if you want a different model.
+const DEFAULT_MODEL = "gpt-4o-mini";
 const MAX_INPUT_TEXT_LENGTH = 24000;
 const FRAMEWORK_IDS: FrameworkId[] = ["euai", "gdpr", "iso42001", "nist", "oecd", "soc2"];
 
 const findingSchema = z.object({
   label: z.string(),
   present: z.boolean(),
-  evidence: z.string().optional().default(""),
+  evidence: z.string(),
 });
 
 const frameworkScoreSchema = z.object({
   score: z.number().min(0).max(100),
   status: z.enum(["Compatible", "Partial", "Not ready"]),
-  findings: z.array(findingSchema).min(1).max(8),
+  findings: z.array(findingSchema),
 });
 
 const riskSchema = z.object({
@@ -35,28 +34,135 @@ const riskSchema = z.object({
 
 const officialMatchSchema = z.object({
   status: z.enum(["Strong source match", "Partial source match", "No direct source evidence"]),
-  matchedTerms: z.array(z.string()).default([]),
+  matchedTerms: z.array(z.string()),
 });
 
-const analysisResponseSchema = z.object({
+export type SmartAnalysisResponse = {
+  readiness: number;
+  verdict: string;
+  frameworkScores: Record<string, z.infer<typeof frameworkScoreSchema>>;
+  risks: z.infer<typeof riskSchema>[];
+  officialMatches: Record<string, z.infer<typeof officialMatchSchema>>;
+  officialConfidence: number;
+};
+
+// OpenAI's strict Structured Outputs mode cannot express a dynamically-keyed
+// record (every property must be explicitly enumerated in the schema), so we
+// ask the model for arrays carrying an explicit id field instead, then
+// convert back to the record shape the rest of the app expects (see
+// toRecordResponse below). This keeps the client contract identical to the
+// previous Gemini/Anthropic implementations.
+const frameworkScoreEntrySchema = frameworkScoreSchema.extend({
+  frameworkId: z.string(),
+});
+
+const officialMatchEntrySchema = officialMatchSchema.extend({
+  sourceId: z.string(),
+});
+
+const openAiResponseSchema = z.object({
   readiness: z.number().min(0).max(100),
   verdict: z.string(),
-  frameworkScores: z.record(z.string(), frameworkScoreSchema),
-  risks: z.array(riskSchema).default([]),
-  officialMatches: z.record(z.string(), officialMatchSchema).default({}),
+  frameworkScores: z.array(frameworkScoreEntrySchema),
+  risks: z.array(riskSchema),
+  officialMatches: z.array(officialMatchEntrySchema),
   officialConfidence: z.number().min(0).max(100),
 });
-
-export type SmartAnalysisResponse = z.infer<typeof analysisResponseSchema>;
 
 function isFrameworkId(value: string): value is FrameworkId {
   return (FRAMEWORK_IDS as string[]).includes(value);
 }
 
-function extractJson(text: string): unknown {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return JSON.parse(fenced ? fenced[1] : trimmed);
+function toRecordResponse(parsed: z.infer<typeof openAiResponseSchema>): SmartAnalysisResponse {
+  return {
+    readiness: parsed.readiness,
+    verdict: parsed.verdict,
+    frameworkScores: Object.fromEntries(
+      parsed.frameworkScores.map(({ frameworkId, ...rest }) => [frameworkId, rest]),
+    ),
+    risks: parsed.risks,
+    officialMatches: Object.fromEntries(
+      parsed.officialMatches.map(({ sourceId, ...rest }) => [sourceId, rest]),
+    ),
+    officialConfidence: parsed.officialConfidence,
+  };
+}
+
+// Hand-written (not zod-derived) JSON Schema for OpenAI's strict json_schema
+// response format. Strict mode has stricter constraints than zod's default
+// semantics can express (no optional/default properties, no numeric
+// min/max, no array length bounds) — every property must appear in
+// `required`, and every object needs `additionalProperties: false`. Numeric
+// range and array-length constraints are instead enforced afterwards by the
+// zod schemas above.
+function buildJsonSchema(frameworkIds: FrameworkId[], sourceIds: string[]) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      readiness: { type: "number" },
+      verdict: { type: "string" },
+      frameworkScores: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            frameworkId: { type: "string", enum: frameworkIds },
+            score: { type: "number" },
+            status: { type: "string", enum: ["Compatible", "Partial", "Not ready"] },
+            findings: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  label: { type: "string" },
+                  present: { type: "boolean" },
+                  evidence: { type: "string" },
+                },
+                required: ["label", "present", "evidence"],
+              },
+            },
+          },
+          required: ["frameworkId", "score", "status", "findings"],
+        },
+      },
+      risks: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string" },
+            severity: { type: "string", enum: ["Critical", "High", "Medium", "Low"] },
+            mitigation: { type: "string" },
+            owner: { type: "string" },
+            due: { type: "string" },
+          },
+          required: ["title", "severity", "mitigation", "owner", "due"],
+        },
+      },
+      officialMatches: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            sourceId: { type: "string", enum: sourceIds },
+            status: {
+              type: "string",
+              enum: ["Strong source match", "Partial source match", "No direct source evidence"],
+            },
+            matchedTerms: { type: "array", items: { type: "string" } },
+          },
+          required: ["sourceId", "status", "matchedTerms"],
+        },
+      },
+      officialConfidence: { type: "number" },
+    },
+    required: ["readiness", "verdict", "frameworkScores", "risks", "officialMatches", "officialConfidence"],
+  } as const;
 }
 
 function buildSystemInstructions(frameworkIds: FrameworkId[], sourceIds: string[]): string {
@@ -66,23 +172,13 @@ function buildSystemInstructions(frameworkIds: FrameworkId[], sourceIds: string[
     `Assess ONLY these frameworks: ${frameworkIds.join(", ")}.`,
     `Official source ids you may cite in officialMatches: ${sourceIds.join(", ")}.`,
     "",
-    "Respond with ONLY a single valid JSON object (no markdown code fences, no commentary before or after) matching exactly this shape:",
-    `{
-  "readiness": <0-100 overall compatibility score across all selected frameworks>,
-  "verdict": "<one short phrase, e.g. 'Partially compatible'>",
-  "frameworkScores": {
-    "<frameworkId>": {
-      "score": <0-100>,
-      "status": "Compatible" | "Partial" | "Not ready",
-      "findings": [ { "label": "<short control name>", "present": <true|false>, "evidence": "<short quote or empty string>" } ]
-    }
-  },
-  "risks": [ { "title": "<risk>", "severity": "Critical"|"High"|"Medium"|"Low", "mitigation": "<practical fix>", "owner": "<team>", "due": "<e.g. '14 days'>" } ],
-  "officialMatches": { "<sourceId>": { "status": "Strong source match"|"Partial source match"|"No direct source evidence", "matchedTerms": ["..."] } },
-  "officialConfidence": <0-100, how well the submitted content is grounded in/cites the official sources above>
-}`,
-    "",
-    "Include an entry in frameworkScores for every requested framework (3-6 findings each), and an entry in officialMatches for every official source id listed above. Be concise but specific.",
+    "Your response will be constrained to a JSON schema automatically. Populate it as follows:",
+    "- frameworkScores: include exactly one entry per requested framework id, each with 3-6 findings.",
+    "- officialMatches: include exactly one entry per official source id listed above.",
+    "- readiness: 0-100 overall compatibility score across all selected frameworks.",
+    "- officialConfidence: 0-100, how well the submitted content is grounded in/cites the official sources above.",
+    "- evidence: a short quote from the submitted content, or an empty string if not present.",
+    "Be concise but specific.",
   ].join("\n");
 }
 
@@ -111,7 +207,7 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, reason: "Invalid request body." });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return Response.json({ ok: false, reason: "Smart analysis is not configured on this deployment." });
   }
@@ -134,9 +230,10 @@ export async function POST(request: Request) {
   try {
     const knowledgeBase = await getKnowledgeBaseContext(activeFrameworks);
     const relevantSources = sourcesForFrameworks(activeFrameworks);
+    const sourceIds = relevantSources.map((source) => source.id);
 
-    const client = new GoogleGenAI({ apiKey });
-    const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+    const client = new OpenAI({ apiKey });
+    const model = process.env.OPENAI_MODEL || DEFAULT_MODEL;
 
     const userContent = [
       `Website/document label: ${url || "(pasted or uploaded document)"}`,
@@ -146,51 +243,60 @@ export async function POST(request: Request) {
       documentText || "(no additional text beyond the URL above)",
     ].join("\n");
 
-    // Gemini has no per-block cache_control flag like Anthropic — instead,
-    // Gemini 2.5+/3+ models apply *implicit* prompt caching automatically
-    // whenever a request shares a stable prefix with a recent one (no code
-    // required). Keeping the large, mostly-stable knowledge base text as
-    // the system instruction (separate from the small, per-request user
-    // content below) maximizes the chance of a cache hit across repeat
-    // checks with the same selected frameworks.
+    // OpenAI automatically caches (and discounts) the prompt prefix shared
+    // across requests once it exceeds ~1024 tokens, no code required — like
+    // the Gemini implicit caching this replaces, keeping the large, mostly
+    // stable knowledge base text in the system message (ahead of the small
+    // per-request user content) maximizes the chance of a cache hit.
     const systemInstruction = [
-      buildSystemInstructions(activeFrameworks, relevantSources.map((source) => source.id)),
+      buildSystemInstructions(activeFrameworks, sourceIds),
       "",
       "### Official regulatory source excerpts",
       knowledgeBase.text ||
         "(No official source text is currently cached for the selected frameworks. Rely on general knowledge of these frameworks, and note lower confidence in officialMatches.)",
     ].join("\n");
 
-    const response = await client.models.generateContent({
+    const response = await client.chat.completions.create({
       model,
-      contents: userContent,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
+      messages: [
+        { role: "system", content: systemInstruction },
+        { role: "user", content: userContent },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "compliance_analysis",
+          strict: true,
+          schema: buildJsonSchema(activeFrameworks, sourceIds),
+        },
       },
     });
 
-    const text = response.text;
+    const message = response.choices[0]?.message;
+    if (message?.refusal) {
+      return Response.json({ ok: false, reason: `Model refused to respond: ${message.refusal}` });
+    }
+
+    const text = message?.content;
     if (!text) {
       return Response.json({ ok: false, reason: "Model returned no text content." });
     }
 
-    const result = analysisResponseSchema.parse(extractJson(text));
+    const parsed = openAiResponseSchema.parse(JSON.parse(text));
+    const result = toRecordResponse(parsed);
 
     return Response.json({
       ok: true,
       ...result,
       knowledgeBaseUpdatedAt: knowledgeBase.updatedAt,
-      cacheReadTokens: response.usageMetadata?.cachedContentTokenCount ?? 0,
+      cacheReadTokens: response.usage?.prompt_tokens_details?.cached_tokens ?? 0,
     });
   } catch (error) {
-    if (error instanceof ApiError) {
-      if (error.status === 401 || error.status === 403) {
-        return Response.json({ ok: false, reason: "Invalid Gemini API key." });
-      }
-      if (error.status === 429) {
-        return Response.json({ ok: false, reason: "Rate limited by Gemini — try again shortly." });
-      }
+    if (error instanceof OpenAI.AuthenticationError) {
+      return Response.json({ ok: false, reason: "Invalid OpenAI API key." });
+    }
+    if (error instanceof OpenAI.RateLimitError) {
+      return Response.json({ ok: false, reason: "Rate limited by OpenAI — try again shortly." });
     }
     const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ ok: false, reason: message });
