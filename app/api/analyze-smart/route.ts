@@ -1,9 +1,15 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { ApiError, GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { getKnowledgeBaseContext } from "../../lib/knowledge-base";
 import { sourcesForFrameworks, type FrameworkId } from "../../lib/regulatory-sources";
 
-const DEFAULT_MODEL = "claude-opus-4-7";
+// Best available reasoning-tier model per Google's own SDK guidance for
+// coding/complex-reasoning tasks — this is a structured, multi-framework
+// compliance extraction task, not a simple lookup, so we default to the
+// flagship tier rather than silently downgrading for cost (matches this
+// project's existing convention for the LLM provider — see GEMINI_MODEL
+// below to override).
+const DEFAULT_MODEL = "gemini-3-pro-preview";
 const MAX_INPUT_TEXT_LENGTH = 24000;
 const FRAMEWORK_IDS: FrameworkId[] = ["euai", "gdpr", "iso42001", "nist", "oecd", "soc2"];
 
@@ -87,9 +93,9 @@ function buildSystemInstructions(frameworkIds: FrameworkId[], sourceIds: string[
  * (see db/index.ts, app/auth.ts) — the client falls back to the static
  * heuristic instead of breaking the "Run check" flow.
  *
- * Intentionally a plain single-turn call (no extended/adaptive thinking):
- * this is a structured extraction task, not open-ended reasoning, and
- * skipping it keeps response latency predictable behind the production
+ * Intentionally a plain single-turn call (no extended/adaptive thinking
+ * budget): this is a structured extraction task, not open-ended reasoning,
+ * and skipping it keeps response latency predictable behind the production
  * reverse proxy.
  */
 export async function POST(request: Request) {
@@ -105,7 +111,7 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, reason: "Invalid request body." });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return Response.json({ ok: false, reason: "Smart analysis is not configured on this deployment." });
   }
@@ -129,8 +135,8 @@ export async function POST(request: Request) {
     const knowledgeBase = await getKnowledgeBaseContext(activeFrameworks);
     const relevantSources = sourcesForFrameworks(activeFrameworks);
 
-    const client = new Anthropic({ apiKey });
-    const model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+    const client = new GoogleGenAI({ apiKey });
+    const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 
     const userContent = [
       `Website/document label: ${url || "(pasted or uploaded document)"}`,
@@ -140,50 +146,51 @@ export async function POST(request: Request) {
       documentText || "(no additional text beyond the URL above)",
     ].join("\n");
 
-    const response = await client.messages.create({
+    // Gemini has no per-block cache_control flag like Anthropic — instead,
+    // Gemini 2.5+/3+ models apply *implicit* prompt caching automatically
+    // whenever a request shares a stable prefix with a recent one (no code
+    // required). Keeping the large, mostly-stable knowledge base text as
+    // the system instruction (separate from the small, per-request user
+    // content below) maximizes the chance of a cache hit across repeat
+    // checks with the same selected frameworks.
+    const systemInstruction = [
+      buildSystemInstructions(activeFrameworks, relevantSources.map((source) => source.id)),
+      "",
+      "### Official regulatory source excerpts",
+      knowledgeBase.text ||
+        "(No official source text is currently cached for the selected frameworks. Rely on general knowledge of these frameworks, and note lower confidence in officialMatches.)",
+    ].join("\n");
+
+    const response = await client.models.generateContent({
       model,
-      max_tokens: 4096,
-      system: [
-        {
-          type: "text",
-          text: buildSystemInstructions(activeFrameworks, relevantSources.map((source) => source.id)),
-        },
-        {
-          // Stable across requests until the knowledge base actually
-          // changes — the prompt-caching breakpoint. Placed last so it
-          // (and the instructions above) cache together; the varying user
-          // content below sits after this breakpoint.
-          type: "text",
-          text:
-            knowledgeBase.text ||
-            "(No official source text is currently cached for the selected frameworks. Rely on general knowledge of these frameworks, and note lower confidence in officialMatches.)",
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [{ role: "user", content: userContent }],
+      contents: userContent,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+      },
     });
 
-    const textBlock = response.content.find(
-      (block): block is Anthropic.TextBlock => block.type === "text",
-    );
-    if (!textBlock) {
+    const text = response.text;
+    if (!text) {
       return Response.json({ ok: false, reason: "Model returned no text content." });
     }
 
-    const result = analysisResponseSchema.parse(extractJson(textBlock.text));
+    const result = analysisResponseSchema.parse(extractJson(text));
 
     return Response.json({
       ok: true,
       ...result,
       knowledgeBaseUpdatedAt: knowledgeBase.updatedAt,
-      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      cacheReadTokens: response.usageMetadata?.cachedContentTokenCount ?? 0,
     });
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      return Response.json({ ok: false, reason: "Invalid Anthropic API key." });
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      return Response.json({ ok: false, reason: "Rate limited by Anthropic — try again shortly." });
+    if (error instanceof ApiError) {
+      if (error.status === 401 || error.status === 403) {
+        return Response.json({ ok: false, reason: "Invalid Gemini API key." });
+      }
+      if (error.status === 429) {
+        return Response.json({ ok: false, reason: "Rate limited by Gemini — try again shortly." });
+      }
     }
     const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ ok: false, reason: message });

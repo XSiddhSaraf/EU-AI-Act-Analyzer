@@ -158,7 +158,7 @@ test("smart analysis (LLM-powered) is wired end to end, with a static fallback",
 
   assert.match(checker, /\/api\/analyze-smart/);
   assert.match(checker, /Baseline heuristic/, "UI should surface when the AI analysis wasn't used");
-  assert.match(analyzeRoute, /ANTHROPIC_API_KEY/);
+  assert.match(analyzeRoute, /GEMINI_API_KEY/);
   assert.match(analyzeRoute, /ok: false/, "the route must fail open instead of erroring");
   assert.match(knowledgeBase, /getKnowledgeBaseContext/);
   assert.match(regulatorySources, /eur-lex\.europa\.eu/);
