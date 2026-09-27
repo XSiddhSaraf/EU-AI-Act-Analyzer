@@ -11,7 +11,7 @@ import { sourcesForFrameworks, type FrameworkId } from "./lib/regulatory-sources
    Types + API contracts (unchanged from the previous checker)
 ──────────────────────────────────────────────────────────────────────────── */
 type Severity = "Critical" | "High" | "Medium" | "Low";
-type PlanId = "free" | "pro" | "team";
+type PlanId = "free" | "pro" | "team" | "agency";
 type UsageState = { plan: PlanId | string; paymentProvider: string; used: number; limit: number; remaining: number | null; unlimited: boolean; degraded: boolean };
 type UsageResponse = Partial<{ allowed: boolean; plan: string; paymentProvider: string; used: number; limit: number; remaining: number | null; unlimited: boolean; degraded: boolean; reason: string }>;
 type AuthState = { status: "loading" | "signed-out" | "signed-in"; email: string | null; name: string | null };
@@ -22,19 +22,42 @@ type SmartAnalysisSuccess = {
   risks: Array<{ title: string; severity: Severity; mitigation: string; owner: string; due: string }>;
   officialMatches: Record<string, { status: string; matchedTerms: string[] }>;
   officialConfidence: number; knowledgeBaseUpdatedAt: string | null;
+  reportId?: number | null; fullReport?: boolean;
 };
 type SmartAnalysisApiResponse = SmartAnalysisSuccess | { ok: false; reason?: string };
 type BillingCheckoutResponse =
   | { ok: true; provider: "stripe"; url: string }
   | { ok: true; provider: "razorpay"; subscriptionId: string; keyId: string; prefillEmail: string }
   | { ok: false; reason?: string };
-type RazorpayCheckoutOptions = { key: string; subscription_id: string; name: string; description?: string; prefill?: { email?: string }; theme?: { color?: string }; handler?: (r: unknown) => void; modal?: { ondismiss?: () => void } };
+type FullReportOrderResponse =
+  | { ok: true; provider: "stripe"; url: string }
+  | { ok: true; provider: "razorpay"; orderId: string; amount: number; currency: string; keyId: string; prefillEmail: string }
+  | { ok: false; reason?: string };
+type ReportSummary = { id: number; label: string; readiness: number; verdict: string; createdAt: string };
+type ApiKeySummary = { id: number; keyPrefix: string; createdAt: string; lastUsedAt: string; revokedAt: string };
+type RazorpayCheckoutOptions = { key: string; subscription_id?: string; order_id?: string; name: string; description?: string; prefill?: { email?: string }; theme?: { color?: string }; handler?: (r: unknown) => void; modal?: { ondismiss?: () => void } };
 declare global { interface Window { Razorpay?: new (o: RazorpayCheckoutOptions) => { open: () => void } } }
 
 const SIGN_IN_HREF = "/api/auth/signin?callbackUrl=%2F";
 const SIGN_OUT_HREF = "/api/auth/signout?callbackUrl=%2F";
 const UPGRADE_URL = (process.env.NEXT_PUBLIC_UPGRADE_URL ?? "").trim() || "mailto:hello@euactanalyzer.com?subject=Upgrade%20to%20Pro";
 const CONTACT_SALES_URL = (process.env.NEXT_PUBLIC_CONTACT_URL ?? "").trim() || "mailto:hello@euactanalyzer.com?subject=Team%20plan";
+
+// Mirrors app/lib/plans.ts PLAN_LIMITS.maxFrameworksPerCheck — duplicated
+// here since that module pulls in server-only DB code that can't be
+// imported into this client component.
+const MAX_FRAMEWORKS_PER_CHECK: Record<string, number> = { free: 1, pro: 6, team: 6, agency: 6 };
+const PLAN_LABELS: Record<string, string> = { free: "Free", pro: "Pro", team: "Team", agency: "Agency" };
+// Literal (not template-interpolated) so each exact CTA string is
+// statically greppable in source, matching this project's existing test
+// convention of asserting on literal button copy.
+const UPGRADE_LABELS: Record<"pro" | "team" | "agency", string> = { pro: "Upgrade to Pro", team: "Upgrade to Team", agency: "Upgrade to Agency" };
+type PricingTier = { id: "pro" | "team" | "agency"; name: string; priceInr: string; priceUsd: { monthly: string; yearly: string }; description: string; comingSoon?: string[] };
+const PRICING_TIERS: PricingTier[] = [
+  { id: "pro", name: "Pro", priceInr: "₹999/mo", priceUsd: { monthly: "$29/mo", yearly: "$24/mo" }, description: "60 checks/mo · all frameworks · PDF/CSV export · check history · 1 user" },
+  { id: "team", name: "Team", priceInr: "₹4,999/mo", priceUsd: { monthly: "$129/mo", yearly: "$99/mo" }, description: "300 checks/mo · 5 users", comingSoon: ["Weekly auto re-scans + alerts", "Jira/GitHub export", "Repo scanning"] },
+  { id: "agency", name: "Agency", priceInr: "Custom", priceUsd: { monthly: "From $299/mo", yearly: "From $299/mo" }, description: "1,000+ checks · white-label reports · SSO · API access · priority support" },
+];
 
 /* ────────────────────────────────────────────────────────────────────────────
    Heuristic knowledge (same scoring as before)
@@ -176,6 +199,17 @@ export function ComplianceChecker() {
   const [billingMessage, setBillingMessage] = useState("");
   const [expanded, setExpanded] = useState<string | null>("euai");
   const [faq, setFaq] = useState<number>(0);
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
+  const [fullReportStatus, setFullReportStatus] = useState<"idle" | "loading">("idle");
+  const [lastReportId, setLastReportId] = useState<number | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [reports, setReports] = useState<ReportSummary[] | null>(null);
+  const [reportsStatus, setReportsStatus] = useState<"idle" | "loading">("idle");
+  const [apiKeys, setApiKeys] = useState<ApiKeySummary[] | null>(null);
+  const [newApiKey, setNewApiKey] = useState("");
+  const [brandingName, setBrandingName] = useState("");
+  const [brandingLogoUrl, setBrandingLogoUrl] = useState("");
+  const [brandingStatus, setBrandingStatus] = useState<"idle" | "loading" | "saved">("idle");
   const fileRef = useRef<HTMLInputElement>(null);
   const checkRef = useRef<HTMLElement>(null);
 
@@ -235,19 +269,24 @@ export function ComplianceChecker() {
   }, [assessment, smartResult, officialValidation]);
 
   /* ── actions ─────────────────────────────────────────────────────────── */
-  const toggleFramework = (id: FrameworkId) => setSelected((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  const maxFrameworks = MAX_FRAMEWORKS_PER_CHECK[usage?.plan ?? "free"] ?? 1;
+  const toggleFramework = (id: FrameworkId) => setSelected((c) => {
+    if (c.includes(id)) return c.filter((x) => x !== id);
+    if (maxFrameworks === 1) return [id];
+    return c.length >= maxFrameworks ? c : [...c, id];
+  });
   const goHome = () => { setStep("input"); checkRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }); };
 
-  async function handleUpgradeClick() {
+  async function handleUpgradeClick(plan: "pro" | "team" | "agency") {
     if (auth.status !== "signed-in") { window.location.href = SIGN_IN_HREF; return; }
     setCheckoutStatus("loading"); setBillingMessage("");
     try {
-      const res = await fetch("/api/billing/checkout", { method: "POST" });
+      const res = await fetch("/api/billing/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan, interval: billingInterval }) });
       const p = (await res.json()) as BillingCheckoutResponse;
       if (p.ok && p.provider === "stripe") { window.location.href = p.url; return; }
       if (p.ok && p.provider === "razorpay") {
         if (!(await loadRazorpayCheckout()) || !window.Razorpay) throw new Error("Could not load Razorpay checkout.");
-        new window.Razorpay({ key: p.keyId, subscription_id: p.subscriptionId, name: "GovCheck", description: "Pro plan — unlimited checks", prefill: { email: p.prefillEmail }, theme: { color: BLUE },
+        new window.Razorpay({ key: p.keyId, subscription_id: p.subscriptionId, name: "GovCheck", description: `${PLAN_LABELS[plan]} plan — ${billingInterval}`, prefill: { email: p.prefillEmail }, theme: { color: BLUE },
           handler: () => { setCheckoutStatus("idle"); setShowPaywall(false); setBillingMessage("Payment received — your plan updates automatically within a few seconds. Refresh if it doesn't."); },
           modal: { ondismiss: () => setCheckoutStatus("idle") } }).open();
         return;
@@ -256,6 +295,70 @@ export function ComplianceChecker() {
     } catch { setBillingMessage("Could not start checkout right now."); }
     setCheckoutStatus("idle");
     window.location.href = UPGRADE_URL;
+  }
+
+  async function handleBuyFullReport() {
+    if (auth.status !== "signed-in") { window.location.href = SIGN_IN_HREF; return; }
+    setFullReportStatus("loading"); setBillingMessage("");
+    try {
+      const res = await fetch("/api/full-report/create-order", { method: "POST" });
+      const p = (await res.json()) as FullReportOrderResponse;
+      if (p.ok && p.provider === "stripe") { window.location.href = p.url; return; }
+      if (p.ok && p.provider === "razorpay") {
+        if (!(await loadRazorpayCheckout()) || !window.Razorpay) throw new Error("Could not load Razorpay checkout.");
+        new window.Razorpay({ key: p.keyId, order_id: p.orderId, name: "GovCheck", description: "Full Report — one-off", prefill: { email: p.prefillEmail }, theme: { color: BLUE },
+          handler: (r: unknown) => {
+            const result = r as { razorpay_order_id?: string; razorpay_payment_id?: string; razorpay_signature?: string };
+            void fetch("/api/full-report/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) })
+              .then((res2) => res2.json() as Promise<{ ok?: boolean; reason?: string }>)
+              .then((v) => {
+                setFullReportStatus("idle");
+                setBillingMessage(v.ok ? "Full Report purchased — run your next check to unlock all 6 frameworks and a branded PDF." : (v.reason ?? "Could not verify payment."));
+              });
+          },
+          modal: { ondismiss: () => setFullReportStatus("idle") } }).open();
+        return;
+      }
+      if (!p.ok) setBillingMessage(p.reason ?? "No payment provider is configured on this deployment.");
+    } catch { setBillingMessage("Could not start checkout right now."); }
+    setFullReportStatus("idle");
+  }
+
+  async function fetchReports() {
+    setReportsStatus("loading");
+    try {
+      const p = (await (await fetch("/api/reports")).json()) as { ok?: boolean; reports?: ReportSummary[] };
+      setReports(p.ok ? (p.reports ?? []) : []);
+    } catch { setReports([]); }
+    setReportsStatus("idle");
+  }
+
+  async function fetchApiKeys() {
+    try {
+      const p = (await (await fetch("/api/api-keys")).json()) as { ok?: boolean; keys?: ApiKeySummary[] };
+      setApiKeys(p.ok ? (p.keys ?? []) : []);
+    } catch { setApiKeys([]); }
+  }
+
+  async function handleCreateApiKey() {
+    try {
+      const p = (await (await fetch("/api/api-keys", { method: "POST" })).json()) as { ok?: boolean; rawKey?: string; reason?: string };
+      if (p.ok && p.rawKey) { setNewApiKey(p.rawKey); void fetchApiKeys(); }
+      else setBillingMessage(p.reason ?? "Could not create API key.");
+    } catch { setBillingMessage("Could not create API key."); }
+  }
+
+  async function handleRevokeApiKey(id: number) {
+    try { await fetch(`/api/api-keys/${id}`, { method: "DELETE" }); void fetchApiKeys(); } catch {}
+  }
+
+  async function handleSaveBranding() {
+    setBrandingStatus("loading");
+    try {
+      const p = (await (await fetch("/api/account/branding", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companyName: brandingName, logoUrl: brandingLogoUrl }) })).json()) as { ok?: boolean; reason?: string };
+      setBrandingStatus(p.ok ? "saved" : "idle");
+      if (!p.ok) setBillingMessage(p.reason ?? "Could not save branding.");
+    } catch { setBrandingStatus("idle"); }
   }
 
   async function handleManageBilling() {
@@ -296,11 +399,11 @@ export function ComplianceChecker() {
   }
 
   async function runSmartAnalysis(text: string, analysisUrl: string, active: FrameworkId[]) {
-    setSmartStatus("loading"); setSmartResult(null);
+    setSmartStatus("loading"); setSmartResult(null); setLastReportId(null);
     try {
       const res = await fetch("/api/analyze-smart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text, url: analysisUrl, selectedFrameworks: active, includeSecurity: false }) });
       const p = (await res.json()) as SmartAnalysisApiResponse;
-      if (p.ok) { setSmartResult(p); setSmartStatus("success"); } else { setSmartStatus("unavailable"); setSmartReason(p.reason ?? "AI-powered analysis unavailable for this run."); }
+      if (p.ok) { setSmartResult(p); setSmartStatus("success"); setLastReportId(p.reportId ?? null); } else { setSmartStatus("unavailable"); setSmartReason(p.reason ?? "AI-powered analysis unavailable for this run."); }
     } catch { setSmartStatus("unavailable"); setSmartReason("AI-powered analysis unavailable for this run."); }
   }
 
@@ -347,12 +450,23 @@ export function ComplianceChecker() {
   const remainingLabel = usage ? (usage.unlimited ? "∞" : `${remaining}/${usage.limit}`) : "3/3";
   const sourceLabel = mode === "website" ? url.trim().replace(/^https?:\/\//, "") || "website" : documentText.trim().split(/\s+/).slice(0, 6).join(" ") + "…";
   const highCount = display.risks.filter((r) => SEV_W[r.severity] >= 3).length;
+  const planLabel = PLAN_LABELS[usage?.plan ?? "free"] ?? "Free";
+  const hasHistoryAccess = usage != null && usage.plan !== "free" && auth.status === "signed-in";
   const runHint = !canRun ? (selected.length ? (mode === "website" ? "Enter a URL to continue." : "Paste text or pick an example to continue.") : "Select at least one framework.")
-    : usage?.unlimited ? `${usage.plan === "team" ? "Team" : "Pro"} plan · unlimited checks` : remaining !== null ? (remaining > 0 ? `${remaining} of ${usage!.limit} free checks left.` : "Free checks used — upgrade to continue.") : "3 free checks, no account needed.";
+    : usage?.unlimited ? `${planLabel} plan · unlimited checks` : remaining !== null ? (remaining > 0 ? `${remaining} of ${usage!.limit} checks left this month.` : "Monthly checks used — upgrade to continue.") : "3 free checks a month, no account needed.";
   const analysisTag = smartStatus === "loading" ? "AI analysis running…" : smartStatus === "success" ? "AI-powered · grounded in official texts" : "Baseline heuristic";
 
   const navLink: CSSProperties = { color: INK, textDecoration: "none" };
   const gutter = "clamp(20px,4vw,56px)";
+
+  useEffect(() => {
+    if (!showPaywall || usage?.plan !== "agency") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- data fetch on modal open, setState happens after an await
+    void fetchApiKeys();
+    fetch("/api/account/branding").then((r) => r.json() as Promise<{ ok?: boolean; companyName?: string; logoUrl?: string }>).then((p) => {
+      if (p.ok) { setBrandingName(p.companyName ?? ""); setBrandingLogoUrl(p.logoUrl ?? ""); }
+    }).catch(() => {});
+  }, [showPaywall, usage?.plan]);
 
   return (
     <div style={{ minHeight: "100vh", background: PAPER, color: INK }}>
@@ -362,6 +476,9 @@ export function ComplianceChecker() {
         <nav className="gc-nav" style={{ display: "flex", gap: 26, marginLeft: "auto", fontSize: 14, fontWeight: 500 }}>
           <a href="#check" style={navLink}>Checker</a><a href="#why" style={navLink}>Why</a><a href="#frameworks" style={navLink}>Frameworks</a><a href="#faq" style={navLink}>FAQ</a>
         </nav>
+        {hasHistoryAccess && (
+          <button type="button" onClick={() => { setShowHistory(true); void fetchReports(); }} className="gc-nav" style={{ ...navLink, fontSize: 13, color: muted(0.6), background: "none", border: 0, cursor: "pointer", padding: 0 }}>History</button>
+        )}
         {auth.status === "signed-in" ? (
           <a href={SIGN_OUT_HREF} className="gc-nav" style={{ ...navLink, fontSize: 13, color: muted(0.6) }} title={auth.email ?? ""}>{auth.name?.split(" ")[0] || auth.email} · Sign out</a>
         ) : auth.status === "signed-out" ? (
@@ -433,13 +550,13 @@ export function ComplianceChecker() {
                     <button key={f.id} type="button" aria-pressed={on} onClick={() => toggleFramework(f.id)} style={{ padding: "10px 16px", borderRadius: 999, fontSize: 14, fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? BLUE : muted(0.18)}`, background: on ? BLUE : "transparent", color: on ? "#fff" : INK }}>{f.label}</button>
                   ); })}
                 </div>
-                <p style={{ margin: 0, fontSize: 13, color: muted(0.5) }}>{selected.length ? `${selected.length} of ${frameworks.length} selected. Fewer frameworks means a sharper read.` : "Select at least one framework."}</p>
+                <p style={{ margin: 0, fontSize: 13, color: muted(0.5) }}>{maxFrameworks === 1 ? "Free plan: 1 framework per check — upgrade to Pro for all 6 at once." : selected.length ? `${selected.length} of ${frameworks.length} selected. Fewer frameworks means a sharper read.` : "Select at least one framework."}</p>
               </div>
               <div style={{ gridColumn: "1/-1", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px 24px", paddingTop: 12 }}>
                 <button type="button" className="gc-btn-solid" onClick={runCheck} disabled={!canRun} style={{ ...pill("solid"), padding: "18px 32px", opacity: canRun ? 1 : 0.45, cursor: canRun ? "pointer" : "not-allowed" }}>Run check</button>
                 <span style={{ fontSize: 14, color: muted(0.55) }}>{runHint}</span>
-                {usage && !usage.unlimited && <button type="button" onClick={() => setShowPaywall(true)} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: BLUE, fontSize: 14, fontWeight: 600 }}>Upgrade</button>}
-                {usage?.unlimited && <button type="button" onClick={handleManageBilling} disabled={portalStatus === "loading"} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: BLUE, fontSize: 14, fontWeight: 600 }}>{portalStatus === "loading" ? "…" : usage.paymentProvider === "razorpay" ? "Cancel subscription" : "Manage billing"}</button>}
+                {usage && usage.plan === "free" && <button type="button" onClick={() => setShowPaywall(true)} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: BLUE, fontSize: 14, fontWeight: 600 }}>Upgrade</button>}
+                {usage && usage.plan !== "free" && <button type="button" onClick={handleManageBilling} disabled={portalStatus === "loading"} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: BLUE, fontSize: 14, fontWeight: 600 }}>{portalStatus === "loading" ? "…" : usage.paymentProvider === "razorpay" ? "Cancel subscription" : "Manage billing"}</button>}
                 {billingMessage && <span style={{ flexBasis: "100%", fontFamily: MONO, fontSize: 12, color: muted(0.55) }}>{billingMessage}</span>}
               </div>
             </div>
@@ -521,6 +638,12 @@ export function ComplianceChecker() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginTop: 48 }}>
                 <button type="button" className="gc-btn-solid" onClick={goHome} style={pill("solid")}>Run another check</button>
                 <button type="button" className="gc-btn-outline" onClick={() => window.print()} style={pill("outline")}>Download summary</button>
+                {lastReportId != null && (
+                  <>
+                    <a href={`/api/reports/${lastReportId}/pdf`} className="gc-btn-outline" style={pill("outline")}>Download PDF</a>
+                    <a href={`/api/reports/${lastReportId}/csv`} className="gc-btn-outline" style={pill("outline")}>Download CSV</a>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -610,27 +733,125 @@ export function ComplianceChecker() {
 
       {/* PAYWALL */}
       {showPaywall && (
-        <div onClick={() => setShowPaywall(false)} style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", padding: 20, background: "rgba(11,15,25,.55)", zIndex: 30, backdropFilter: "blur(6px)" }}>
-          <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} className="gc-rise" style={{ width: "min(760px,100%)", background: "#fff", borderRadius: 24, padding: "clamp(24px,4vw,48px)", display: "flex", flexDirection: "column", gap: 32 }}>
+        <div onClick={() => setShowPaywall(false)} style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", padding: 20, background: "rgba(11,15,25,.55)", zIndex: 30, backdropFilter: "blur(6px)", overflowY: "auto" }}>
+          <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} className="gc-rise" style={{ width: "min(960px,100%)", maxHeight: "90vh", overflowY: "auto", background: "#fff", borderRadius: 24, padding: "clamp(24px,4vw,48px)", display: "flex", flexDirection: "column", gap: 28 }}>
             <div>
               <p style={{ ...eyebrow, marginBottom: 12 }}>Pricing</p>
-              <h2 style={{ margin: "0 0 8px", fontSize: "clamp(28px,3.5vw,40px)", lineHeight: 1.05, letterSpacing: "-.03em", fontWeight: 600 }}>{remaining === 0 ? "You've used your free checks." : "Go unlimited with Pro."}</h2>
-              <p style={{ margin: 0, fontSize: 16, color: muted(0.65) }}>Unlimited checks, AI-powered analysis and a history of every run.</p>
+              <h2 style={{ margin: "0 0 8px", fontSize: "clamp(28px,3.5vw,40px)", lineHeight: 1.05, letterSpacing: "-.03em", fontWeight: 600 }}>{remaining === 0 ? "You've used your checks for this month." : "Choose your plan."}</h2>
+              <p style={{ margin: 0, fontSize: 16, color: muted(0.65) }}>More checks, every framework, exports and history as you grow.</p>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 16 }}>
-              {[
-                ["Free", "$0", "3 checks a month · baseline heuristic", PAPER, INK, ""],
-                ["Pro", "₹999", "Unlimited checks · AI analysis · history", BLUE, "#fff", "~$11 for international cards"],
-                ["Team", "Custom", "Shared workspace · SSO · audit export", INK, "#fff", ""],
-              ].map(([n, price, d, bg, fg, note]) => (
-                <div key={n} style={{ background: bg, color: fg, borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 6 }}><h3 style={{ margin: 0, fontSize: 14, fontFamily: MONO, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 500 }}>{n}</h3><p style={{ margin: 0, fontSize: 40, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>{price}{n === "Pro" && <span style={{ fontSize: 14, letterSpacing: 0, fontWeight: 400, opacity: 0.8 }}> / mo</span>}</p>{note ? <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>{note}</p> : null}<p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.8 }}>{d}</p></div>
+
+            <div style={{ display: "inline-flex", background: PAPER, borderRadius: 999, padding: 4, width: "fit-content", gap: 4 }}>
+              {(["monthly", "yearly"] as const).map((iv) => (
+                <button key={iv} type="button" onClick={() => setBillingInterval(iv)} style={{ padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: 0, borderRadius: 999, background: billingInterval === iv ? INK : "transparent", color: billingInterval === iv ? "#fff" : INK, textTransform: "capitalize" }}>{iv === "yearly" ? "Yearly (USD, save ~17%)" : "Monthly"}</button>
               ))}
             </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 16 }}>
+              <div style={{ background: PAPER, color: INK, borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 6 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontFamily: MONO, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 500 }}>Free</h3>
+                <p style={{ margin: 0, fontSize: 40, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>$0</p>
+                <p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.8 }}>3 checks a month · score + top 3 gaps · 1 framework per check</p>
+              </div>
+
+              <div style={{ background: INK, color: "#fff", borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 6 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontFamily: MONO, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 500 }}>Full Report</h3>
+                <p style={{ margin: 0, fontSize: 40, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>$19<span style={{ fontSize: 14, letterSpacing: 0, fontWeight: 400, opacity: 0.8 }}> one-off</span></p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>~₹799 (India)</p>
+                <p style={{ margin: "8px 0 12px", fontSize: 13, opacity: 0.85 }}>One full check, all 6 frameworks · complete evidence map + fix list · branded PDF</p>
+                <button type="button" className="gc-btn-outline" onClick={handleBuyFullReport} disabled={fullReportStatus === "loading"} style={{ ...pill("outline", "md"), color: "#fff", borderColor: "rgba(255,255,255,.4)", marginTop: "auto" }}>{fullReportStatus === "loading" ? "Starting…" : auth.status === "signed-in" ? "Buy Full Report" : "Sign in and upgrade"}</button>
+              </div>
+
+              {PRICING_TIERS.map((tier) => {
+                const isCurrent = usage?.plan === tier.id;
+                return (
+                  <div key={tier.id} style={{ background: tier.id === "pro" ? BLUE : INK, color: "#fff", borderRadius: 16, padding: 24, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <h3 style={{ margin: 0, fontSize: 14, fontFamily: MONO, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: 500 }}>{tier.name}</h3>
+                    <p style={{ margin: 0, fontSize: 32, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>{tier.priceUsd[billingInterval]}</p>
+                    <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>{tier.priceInr} (India)</p>
+                    <p style={{ margin: "8px 0 0", fontSize: 13, opacity: 0.85 }}>{tier.description}</p>
+                    {tier.comingSoon && (
+                      <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
+                        {tier.comingSoon.map((f) => <li key={f} style={{ fontSize: 11, opacity: 0.7 }}>• {f} (coming soon)</li>)}
+                      </ul>
+                    )}
+                    <div style={{ marginTop: 12 }}>
+                      {isCurrent ? (
+                        <span style={{ fontSize: 12, fontFamily: MONO, opacity: 0.8 }}>Current plan</span>
+                      ) : (
+                        <button type="button" className="gc-btn-outline" onClick={() => handleUpgradeClick(tier.id)} disabled={checkoutStatus === "loading"} style={{ ...pill("outline", "md"), color: "#fff", borderColor: "rgba(255,255,255,.4)" }}>{checkoutStatus === "loading" ? "Starting checkout…" : auth.status === "signed-in" ? UPGRADE_LABELS[tier.id] : "Sign in and upgrade"}</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             {billingMessage && <p style={{ margin: 0, fontFamily: MONO, fontSize: 12, color: muted(0.55) }}>{billingMessage}</p>}
+
+            {usage?.plan === "agency" && (
+              <div style={{ borderTop: `1px solid ${muted(0.1)}`, paddingTop: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+                <div>
+                  <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 600 }}>API access</h3>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                    <button type="button" className="gc-btn-outline" onClick={handleCreateApiKey} style={pill("outline", "md")}>Generate new key</button>
+                    {newApiKey && <span style={{ fontFamily: MONO, fontSize: 12, wordBreak: "break-all" }}>{newApiKey} (copy now — shown once)</span>}
+                  </div>
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+                    {(apiKeys ?? []).map((k) => (
+                      <li key={k.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13, color: muted(0.6) }}>
+                        <span style={{ fontFamily: MONO }}>{k.keyPrefix}…</span>
+                        <span>{k.revokedAt ? "Revoked" : "Active"}</span>
+                        {!k.revokedAt && <button type="button" onClick={() => handleRevokeApiKey(k.id)} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: BLUE }}>Revoke</button>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h3 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 600 }}>White-label branding</h3>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <input value={brandingName} onChange={(e) => setBrandingName(e.target.value)} placeholder="Company name" className="gc-field" style={{ padding: "10px 14px", fontSize: 14, minWidth: 200 }} />
+                    <input value={brandingLogoUrl} onChange={(e) => setBrandingLogoUrl(e.target.value)} placeholder="https://.../logo.png" className="gc-field" style={{ padding: "10px 14px", fontSize: 14, minWidth: 260 }} />
+                    <button type="button" className="gc-btn-solid" onClick={handleSaveBranding} disabled={brandingStatus === "loading"} style={pill("solid", "md")}>{brandingStatus === "loading" ? "Saving…" : brandingStatus === "saved" ? "Saved" : "Save"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
               <a href={CONTACT_SALES_URL} className="gc-btn-outline" style={pill("outline", "md")}>Contact sales</a>
               <button type="button" className="gc-btn-outline" onClick={() => setShowPaywall(false)} style={pill("outline", "md")}>Not now</button>
-              <button type="button" className="gc-btn-solid" onClick={handleUpgradeClick} disabled={checkoutStatus === "loading"} style={pill("solid", "md")}>{checkoutStatus === "loading" ? "Starting checkout…" : auth.status === "signed-in" ? "Upgrade to Pro" : "Sign in and upgrade"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HISTORY */}
+      {showHistory && (
+        <div onClick={() => setShowHistory(false)} style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", padding: 20, background: "rgba(11,15,25,.55)", zIndex: 30, backdropFilter: "blur(6px)" }}>
+          <div role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} className="gc-rise" style={{ width: "min(640px,100%)", maxHeight: "80vh", overflowY: "auto", background: "#fff", borderRadius: 24, padding: "clamp(24px,4vw,40px)", display: "flex", flexDirection: "column", gap: 20 }}>
+            <div>
+              <p style={{ ...eyebrow, marginBottom: 8 }}>History</p>
+              <h2 style={{ margin: 0, fontSize: "clamp(24px,3vw,32px)", lineHeight: 1.1, letterSpacing: "-.03em", fontWeight: 600 }}>Your saved reports</h2>
+            </div>
+            {reportsStatus === "loading" && <p style={{ margin: 0, fontSize: 14, color: muted(0.55) }}>Loading…</p>}
+            {reportsStatus !== "loading" && (reports?.length ?? 0) === 0 && (
+              <p style={{ margin: 0, fontSize: 14, color: muted(0.55) }}>No saved reports yet. Pro, Team, and Agency checks (and Full Report purchases) are saved here automatically.</p>
+            )}
+            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
+              {(reports ?? []).map((r) => (
+                <li key={r.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${muted(0.08)}` }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <p style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 600, wordBreak: "break-word" }}>{r.label || "Untitled check"}</p>
+                    <p style={{ margin: 0, fontSize: 12, color: muted(0.55) }}>{r.verdict} · {r.readiness}/100 · {new Date(r.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <a href={`/api/reports/${r.id}/pdf`} className="gc-btn-outline" style={pill("outline", "md")}>PDF</a>
+                  <a href={`/api/reports/${r.id}/csv`} className="gc-btn-outline" style={pill("outline", "md")}>CSV</a>
+                </li>
+              ))}
+            </ul>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" className="gc-btn-outline" onClick={() => setShowHistory(false)} style={pill("outline", "md")}>Close</button>
             </div>
           </div>
         </div>

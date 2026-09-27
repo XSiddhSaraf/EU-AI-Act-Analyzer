@@ -19,12 +19,18 @@ const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS account_plans (
   subject text PRIMARY KEY NOT NULL,
   plan text DEFAULT 'free' NOT NULL,
+  billing_interval text DEFAULT '' NOT NULL,
+  monthly_check_limit_override integer,
   payment_provider text DEFAULT '' NOT NULL,
   stripe_customer_id text DEFAULT '' NOT NULL,
   stripe_subscription_id text DEFAULT '' NOT NULL,
   razorpay_subscription_id text DEFAULT '' NOT NULL,
   bonus_checks integer DEFAULT 0 NOT NULL,
   last_check_pack_order_id text DEFAULT '' NOT NULL,
+  pending_full_reports integer DEFAULT 0 NOT NULL,
+  last_full_report_order_id text DEFAULT '' NOT NULL,
+  white_label_company_name text DEFAULT '' NOT NULL,
+  white_label_logo_url text DEFAULT '' NOT NULL,
   updated_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 CREATE TABLE IF NOT EXISTS usage_events (
@@ -45,6 +51,24 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
   last_error text DEFAULT '' NOT NULL,
   fetched_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+CREATE TABLE IF NOT EXISTS check_reports (
+  id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+  subject text NOT NULL,
+  label text DEFAULT '' NOT NULL,
+  result_json text NOT NULL,
+  readiness integer DEFAULT 0 NOT NULL,
+  verdict text DEFAULT '' NOT NULL,
+  created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE TABLE IF NOT EXISTS api_keys (
+  id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+  subject text NOT NULL,
+  key_hash text NOT NULL,
+  key_prefix text NOT NULL,
+  created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  last_used_at text DEFAULT '' NOT NULL,
+  revoked_at text DEFAULT '' NOT NULL
+);
 `;
 
 // SQLite has no "ADD COLUMN IF NOT EXISTS" (that's a syntax error, not just
@@ -59,6 +83,12 @@ const ADD_COLUMN_STATEMENTS = [
   "ALTER TABLE account_plans ADD COLUMN razorpay_subscription_id text DEFAULT '' NOT NULL",
   "ALTER TABLE account_plans ADD COLUMN bonus_checks integer DEFAULT 0 NOT NULL",
   "ALTER TABLE account_plans ADD COLUMN last_check_pack_order_id text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN billing_interval text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN monthly_check_limit_override integer",
+  "ALTER TABLE account_plans ADD COLUMN pending_full_reports integer DEFAULT 0 NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN last_full_report_order_id text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN white_label_company_name text DEFAULT '' NOT NULL",
+  "ALTER TABLE account_plans ADD COLUMN white_label_logo_url text DEFAULT '' NOT NULL",
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

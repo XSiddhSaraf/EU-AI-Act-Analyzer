@@ -41,6 +41,36 @@ export async function POST(request: Request) {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const subject = session.metadata?.subject ?? session.client_reference_id ?? undefined;
+
+      // One-off "Full Report" purchase (mode: "payment", see
+      // app/api/full-report/create-order) — distinct from the subscription
+      // flow below, which only ever runs in mode: "subscription".
+      if (session.metadata?.kind === "full_report" && subject) {
+        const rows: (typeof accountPlans.$inferSelect)[] = await db
+          .select()
+          .from(accountPlans)
+          .where(eq(accountPlans.subject, subject))
+          .limit(1);
+        const row = rows[0];
+
+        // Stripe may retry webhook delivery — guard against double-crediting
+        // the same checkout session.
+        if (row?.lastFullReportOrderId !== session.id) {
+          const nextPendingFullReports = (row?.pendingFullReports ?? 0) + 1;
+          const now = new Date().toISOString();
+          await db
+            .insert(accountPlans)
+            .values({ subject, pendingFullReports: nextPendingFullReports, lastFullReportOrderId: session.id, updatedAt: now })
+            .onConflictDoUpdate({
+              target: accountPlans.subject,
+              set: { pendingFullReports: nextPendingFullReports, lastFullReportOrderId: session.id, updatedAt: now },
+            });
+        }
+        return Response.json({ received: true });
+      }
+
+      const plan = session.metadata?.plan === "team" || session.metadata?.plan === "agency" ? session.metadata.plan : "pro";
+      const billingInterval = session.metadata?.interval === "yearly" ? "yearly" : "monthly";
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
       const subscriptionId =
         typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
@@ -51,7 +81,8 @@ export async function POST(request: Request) {
           .insert(accountPlans)
           .values({
             subject,
-            plan: "pro",
+            plan,
+            billingInterval,
             stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId ?? "",
             updatedAt: now,
@@ -59,7 +90,8 @@ export async function POST(request: Request) {
           .onConflictDoUpdate({
             target: accountPlans.subject,
             set: {
-              plan: "pro",
+              plan,
+              billingInterval,
               stripeCustomerId: customerId,
               stripeSubscriptionId: subscriptionId ?? "",
               updatedAt: now,
@@ -84,7 +116,11 @@ export async function POST(request: Request) {
           await db
             .update(accountPlans)
             .set({
-              plan: isActive ? "pro" : "free",
+              // Preserve whichever tier checkout.session.completed set
+              // (pro/team/agency) on renewal — only flip to "free" once the
+              // subscription is no longer active. Never upgrade/downgrade
+              // tier from this event; that only happens via a new checkout.
+              plan: isActive ? row.plan : "free",
               stripeSubscriptionId: isActive ? subscription.id : "",
               updatedAt: new Date().toISOString(),
             })

@@ -46,12 +46,20 @@ test("D1 migration for usage metering is generated and bundled", async () => {
   assert.match(combined, /CREATE TABLE `usage_events`/);
   assert.match(combined, /CREATE TABLE `account_plans`/);
   assert.match(combined, /CREATE TABLE `knowledge_sources`/);
+  assert.match(combined, /CREATE TABLE `check_reports`/);
+  assert.match(combined, /CREATE TABLE `api_keys`/);
   assert.match(combined, /stripe_customer_id/);
   assert.match(combined, /stripe_subscription_id/);
   assert.match(combined, /payment_provider/);
   assert.match(combined, /razorpay_subscription_id/);
   assert.match(combined, /bonus_checks/);
   assert.match(combined, /last_check_pack_order_id/);
+  assert.match(combined, /billing_interval/);
+  assert.match(combined, /monthly_check_limit_override/);
+  assert.match(combined, /pending_full_reports/);
+  assert.match(combined, /last_full_report_order_id/);
+  assert.match(combined, /white_label_company_name/);
+  assert.match(combined, /white_label_logo_url/);
 
   assert.equal(
     await exists("dist/.openai/drizzle/meta/_journal.json"),
@@ -63,12 +71,18 @@ test("D1 migration for usage metering is generated and bundled", async () => {
 test("self-hosted bootstrap SQL stays in sync with the Drizzle schema", async () => {
   const dbIndex = await readFile(new URL("db/index.ts", root), "utf8");
   assert.match(dbIndex, /CREATE TABLE IF NOT EXISTS knowledge_sources/);
+  assert.match(dbIndex, /CREATE TABLE IF NOT EXISTS check_reports/);
+  assert.match(dbIndex, /CREATE TABLE IF NOT EXISTS api_keys/);
   assert.match(dbIndex, /stripe_customer_id/);
   assert.match(dbIndex, /stripe_subscription_id/);
   assert.match(dbIndex, /payment_provider/);
   assert.match(dbIndex, /razorpay_subscription_id/);
   assert.match(dbIndex, /bonus_checks/);
   assert.match(dbIndex, /last_check_pack_order_id/);
+  assert.match(dbIndex, /billing_interval/);
+  assert.match(dbIndex, /monthly_check_limit_override/);
+  assert.match(dbIndex, /pending_full_reports/);
+  assert.match(dbIndex, /white_label_company_name/);
 });
 
 test("Stripe billing is wired end to end, with a manual-plan fallback", async () => {
@@ -188,24 +202,104 @@ test("home page renders the GovCheck compliance checker, not the starter skeleto
   }
 });
 
-test("free-tier usage metering (3 free checks) is wired end to end", async () => {
-  const [schema, usageLib, usageRoute, consumeRoute, checker] = await Promise.all([
+test("monthly usage metering (5-tier plans) is wired end to end", async () => {
+  const [schema, usageLib, usageRoute, consumeRoute, plansLib, checker] = await Promise.all([
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("app/lib/usage.ts", root), "utf8"),
     readFile(new URL("app/api/usage/route.ts", root), "utf8"),
     readFile(new URL("app/api/usage/consume/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/plans.ts", root), "utf8"),
     readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
   ]);
 
   assert.match(schema, /usageEvents/);
   assert.match(schema, /accountPlans/);
-  assert.match(usageLib, /FREE_CHECK_LIMIT = 3/);
+  assert.doesNotMatch(usageLib, /FREE_CHECK_LIMIT/, "flat lifetime limit should be replaced by per-plan monthly limits");
   assert.match(usageRoute, /resolveSubject/);
+  assert.match(usageRoute, /resolvePlanContext/, "usage must resolve limits from the plan config, not a flat constant");
   assert.match(consumeRoute, /free_limit_reached/);
+  assert.match(consumeRoute, /startOfCurrentUtcMonthIso/, "usage must reset monthly, not be a lifetime cap");
+  assert.match(plansLib, /monthlyChecks: 3/, "free tier");
+  assert.match(plansLib, /monthlyChecks: 60/, "pro tier");
+  assert.match(plansLib, /monthlyChecks: 300/, "team tier");
+  assert.match(plansLib, /monthlyChecks: 1000/, "agency tier");
+  assert.match(plansLib, /maxFrameworksPerCheck: 1/, "free tier is capped to 1 framework per check");
 
   // UI: usage meter, gated run button, and the upgrade/paywall panel.
   assert.match(checker, /free checks/i);
   assert.match(checker, /showPaywall/);
   assert.match(checker, /\/api\/usage\/consume/);
   assert.match(checker, /Upgrade to Pro/);
+  assert.match(checker, /Upgrade to Team/);
+  assert.match(checker, /Upgrade to Agency/);
+});
+
+test("Full Report one-off purchase is wired end to end", async () => {
+  const [createOrderRoute, verifyRoute, analyzeRoute, stripeWebhook, fullReportLib, schema, checker] = await Promise.all([
+    readFile(new URL("app/api/full-report/create-order/route.ts", root), "utf8"),
+    readFile(new URL("app/api/full-report/verify/route.ts", root), "utf8"),
+    readFile(new URL("app/api/analyze-smart/route.ts", root), "utf8"),
+    readFile(new URL("app/api/stripe/webhook/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/full-report.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+  ]);
+
+  assert.match(createOrderRoute, /getCurrentUser/, "order creation must require sign-in");
+  assert.match(createOrderRoute, /orders\.create/, "must prefer the Razorpay Orders API");
+  assert.match(createOrderRoute, /mode: "payment"/, "must fall back to a Stripe one-off payment session");
+  assert.match(verifyRoute, /createHmac/, "must verify HMAC-SHA256(order_id|payment_id)");
+  assert.match(verifyRoute, /pendingFullReports/, "must credit the full-report counter, not bonusChecks");
+  assert.match(stripeWebhook, /kind === "full_report"/, "stripe webhook must distinguish one-off payments from subscriptions");
+  assert.match(analyzeRoute, /pendingFullReports/, "analyze-smart must consume the credit and unlock all frameworks");
+  assert.match(analyzeRoute, /FRAMEWORK_IDS\s*$/m, "a full-report run should force all framework ids");
+  assert.match(fullReportLib, /FULL_REPORT_PRICE_USD_CENTS/);
+  assert.match(schema, /pendingFullReports/);
+  assert.match(checker, /\/api\/full-report\/create-order/);
+  assert.match(checker, /Buy Full Report/);
+});
+
+test("check history + PDF/CSV export are wired end to end", async () => {
+  const [reportsRoute, pdfRoute, csvRoute, pdfLib, csvLib, analyzeRoute, checker] = await Promise.all([
+    readFile(new URL("app/api/reports/route.ts", root), "utf8"),
+    readFile(new URL("app/api/reports/[id]/pdf/route.ts", root), "utf8"),
+    readFile(new URL("app/api/reports/[id]/csv/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/pdf-report.tsx", root), "utf8"),
+    readFile(new URL("app/lib/csv.ts", root), "utf8"),
+    readFile(new URL("app/api/analyze-smart/route.ts", root), "utf8"),
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+  ]);
+
+  assert.match(reportsRoute, /resolveSubject/);
+  assert.match(pdfRoute, /row\.subject !== subject/, "PDF export must be ownership-checked");
+  assert.match(csvRoute, /row\.subject !== subject/, "CSV export must be ownership-checked");
+  assert.match(pdfLib, /renderComplianceReportPdf/);
+  assert.match(pdfLib, /companyName/, "PDF must support Agency white-label branding");
+  assert.match(csvLib, /reportToCsv/);
+  assert.match(analyzeRoute, /checkReports/, "analyze-smart must persist reports for history/export");
+  assert.match(checker, /\/api\/reports/);
+  assert.match(checker, /Download PDF/);
+  assert.match(checker, /Download CSV/);
+});
+
+test("Agency API keys and white-label branding are wired end to end", async () => {
+  const [apiKeysRoute, revokeRoute, apiKeysLib, brandingRoute, analyzeRoute, schema, checker] = await Promise.all([
+    readFile(new URL("app/api/api-keys/route.ts", root), "utf8"),
+    readFile(new URL("app/api/api-keys/[id]/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/api-keys.ts", root), "utf8"),
+    readFile(new URL("app/api/account/branding/route.ts", root), "utf8"),
+    readFile(new URL("app/api/analyze-smart/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+  ]);
+
+  assert.match(apiKeysRoute, /plan !== "agency"/, "key creation/listing must require the Agency plan");
+  assert.match(revokeRoute, /row\.subject !== subject/, "key revocation must be ownership-checked");
+  assert.match(apiKeysLib, /createHash\("sha256"\)/, "raw keys must never be stored, only a hash");
+  assert.match(brandingRoute, /plan !== "agency"/, "branding must require the Agency plan");
+  assert.match(brandingRoute, /protocol === "https:"/, "logo URL must be validated as https");
+  assert.match(analyzeRoute, /extractBearerToken/, "analyze-smart must accept an Agency API key as an alternate identity");
+  assert.match(schema, /apiKeys/);
+  assert.match(checker, /Generate new key/);
+  assert.match(checker, /White-label branding/);
 });

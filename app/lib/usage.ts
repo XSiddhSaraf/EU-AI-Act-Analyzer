@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { getCurrentUser } from "../auth";
 
 export const ANON_COOKIE_NAME = "agc_uid";
-export const FREE_CHECK_LIMIT = 3;
 
 export type ResolvedSubject = {
   /** Stable identity used as the row key for usage_events / account_plans. */

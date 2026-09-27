@@ -36,6 +36,13 @@
       "when": 1788272791149,
       "tag": "0004_zippy_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790502452594,
+      "tag": "0005_wealthy_wolfpack",
+      "breakpoints": true
     }
   ]
 }
