@@ -79,8 +79,16 @@ function buildStyles(StyleSheet: { create: (styles: Record<string, unknown>) => 
     logo: { width: 28, height: 28, objectFit: "contain" },
     brand: { fontSize: 14, fontWeight: 700 },
     dateText: { fontSize: 9, color: GREY_TEXT },
-    title: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
-    meta: { fontSize: 9, color: GREY_TEXT, marginBottom: 20 },
+    eyebrow: { fontSize: 9, fontWeight: 700, color: BLUE, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 },
+    subjectCard: {
+      backgroundColor: INK,
+      borderRadius: 8,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      marginBottom: 24,
+    },
+    subjectLabel: { fontSize: 8, fontWeight: 700, color: "rgba(255,255,255,.6)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
+    subjectTitle: { fontSize: 17, fontWeight: 700, color: "#ffffff", lineHeight: 1.3 },
     scoreRow: { flexDirection: "row", gap: 16, marginBottom: 24 },
     scoreBox: { padding: 12, backgroundColor: "#f3f3f3", borderRadius: 6, flex: 1 },
     scoreValue: { fontSize: 26, fontWeight: 700 },
@@ -155,8 +163,11 @@ function buildComplianceReportPdf(pdf: any, styles: Record<string, unknown>, res
           <Text style={styles.dateText}>{new Date(options.createdAt).toLocaleDateString()}</Text>
         </View>
 
-        <Text style={styles.title}>AI Governance Compliance Report</Text>
-        <Text style={styles.meta}>{options.label || "Untitled check"}</Text>
+        <Text style={styles.eyebrow}>AI Governance Compliance Report</Text>
+        <View style={styles.subjectCard}>
+          <Text style={styles.subjectLabel}>Checked</Text>
+          <Text style={styles.subjectTitle}>{options.label || "Untitled check"}</Text>
+        </View>
 
         <View style={styles.scoreRow}>
           <View style={styles.scoreBox}>
