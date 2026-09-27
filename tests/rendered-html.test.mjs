@@ -156,7 +156,7 @@ test("one-time Razorpay Standard Checkout (extra checks pack) backend is intact"
   assert.match(verifyRoute, /orders\.fetch/, "must confirm order ownership before crediting");
   assert.match(verifyRoute, /lastCheckPackOrderId/, "must be idempotent against repeat verification calls");
   assert.match(usageRoute, /bonusChecks/, "usage route must expose the purchased bonus checks balance");
-  assert.match(consumeRoute, /bonusChecks/, "consume gating must count bonus checks toward the limit");
+  assert.match(consumeRoute, /consumeUsageUnit/, "consume gating must use the shared quota helper, which counts bonus checks toward the limit");
   assert.match(checkPackLib, /CHECK_PACK_SIZE/);
   assert.match(schema, /bonusChecks/);
   assert.match(schema, /lastCheckPackOrderId/);
@@ -218,7 +218,8 @@ test("monthly usage metering (5-tier plans) is wired end to end", async () => {
   assert.match(usageRoute, /resolveSubject/);
   assert.match(usageRoute, /resolvePlanContext/, "usage must resolve limits from the plan config, not a flat constant");
   assert.match(consumeRoute, /free_limit_reached/);
-  assert.match(consumeRoute, /startOfCurrentUtcMonthIso/, "usage must reset monthly, not be a lifetime cap");
+  assert.match(consumeRoute, /consumeUsageUnit/, "consume must use the shared quota helper");
+  assert.match(plansLib, /startOfCurrentUtcMonthIso/, "usage must reset monthly, not be a lifetime cap");
   assert.match(plansLib, /monthlyChecks: 3/, "free tier");
   assert.match(plansLib, /monthlyChecks: 60/, "pro tier");
   assert.match(plansLib, /monthlyChecks: 300/, "team tier");
@@ -302,4 +303,39 @@ test("Agency API keys and white-label branding are wired end to end", async () =
   assert.match(schema, /apiKeys/);
   assert.match(checker, /Generate new key/);
   assert.match(checker, /White-label branding/);
+});
+
+test("margin-protection limits (size caps, rate limit, one AI analysis per check) are wired end to end", async () => {
+  const [extractRoute, fetchRoute, consumeRoute, analyzeRoute, rateLimitLib, ticketsLib, checker] = await Promise.all([
+    readFile(new URL("app/api/extract-document/route.ts", root), "utf8"),
+    readFile(new URL("app/api/fetch-website/route.ts", root), "utf8"),
+    readFile(new URL("app/api/usage/consume/route.ts", root), "utf8"),
+    readFile(new URL("app/api/analyze-smart/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/rate-limit.ts", root), "utf8"),
+    readFile(new URL("app/lib/check-tickets.ts", root), "utf8"),
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+  ]);
+
+  // File size cap.
+  assert.match(extractRoute, /MAX_FILE_SIZE_BYTES/, "uploaded files must be capped");
+  assert.match(extractRoute, /file\.size > MAX_FILE_SIZE_BYTES/);
+
+  // Page (raw fetched bytes) size cap — must cap the download itself, not
+  // just truncate the already-downloaded text.
+  assert.match(fetchRoute, /MAX_FETCH_BYTES/, "fetched website responses must be capped");
+  assert.match(fetchRoute, /readBodyWithCap/, "must stream/cap the raw response instead of buffering it whole first");
+
+  // Per-user rate limit.
+  assert.match(rateLimitLib, /isRateLimited/);
+  assert.match(consumeRoute, /isRateLimited/, "the check-initiation gate must be rate-limited");
+  assert.match(analyzeRoute, /isRateLimited/, "the Agency API path (no separate consume step) must also be rate-limited");
+
+  // One AI analysis per check, enforced via a one-shot ticket tied to the
+  // consumed quota unit — not just hidden client-side.
+  assert.match(ticketsLib, /issueCheckTicket/);
+  assert.match(ticketsLib, /consumeCheckTicket/);
+  assert.match(consumeRoute, /issueCheckTicket/, "consume must issue a ticket on success");
+  assert.match(analyzeRoute, /consumeCheckTicket/, "analyze-smart must require\/consume the ticket for browser callers");
+  assert.match(analyzeRoute, /consumeUsageUnit/, "the Agency API path must enforce its own monthly quota inline");
+  assert.match(checker, /checkTicket/, "the client must forward the ticket from consume to analyze-smart");
 });

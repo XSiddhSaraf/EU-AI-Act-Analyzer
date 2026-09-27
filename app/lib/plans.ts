@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "../../db";
-import { accountPlans } from "../../db/schema";
+import { accountPlans, usageEvents } from "../../db/schema";
 
 export type PlanId = "free" | "pro" | "team" | "agency";
 export type BillingInterval = "monthly" | "yearly";
@@ -132,4 +132,44 @@ export async function resolvePlanContext(subject: string): Promise<PlanContext> 
 export function startOfCurrentUtcMonthIso(): string {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+}
+
+export type UsageGateResult =
+  | { allowed: true; plan: PlanId; paymentProvider: string; used: number; limit: number; remaining: number | null; unlimited: boolean }
+  | { allowed: false; plan: PlanId; used: number; limit: number; remaining: 0; unlimited: false };
+
+/**
+ * Atomically checks and consumes one unit of a subject's monthly check
+ * quota, logging it to usage_events. Shared by POST /api/usage/consume
+ * (the browser flow's explicit gate) and the Agency API-key path in
+ * POST /api/analyze-smart (which has no separate consume step of its own
+ * — without this, programmatic API access had zero quota enforcement).
+ */
+export async function consumeUsageUnit(subject: string, kind: string, label: string): Promise<UsageGateResult> {
+  const db = await getDb();
+  const planContext = await resolvePlanContext(subject);
+  const { plan, paymentProvider, bonusChecks, unlimited, monthlyLimit } = planContext;
+  const limit = monthlyLimit + bonusChecks;
+
+  const usedRows = await db
+    .select({ value: sql<number>`count(*)` })
+    .from(usageEvents)
+    .where(and(eq(usageEvents.subject, subject), gte(usageEvents.createdAt, startOfCurrentUtcMonthIso())));
+  const used = Number(usedRows[0]?.value ?? 0);
+
+  if (!unlimited && used >= limit) {
+    return { allowed: false, plan, used, limit, remaining: 0, unlimited: false };
+  }
+
+  await db.insert(usageEvents).values({ subject, kind, label });
+  const nextUsed = used + 1;
+  return {
+    allowed: true,
+    plan,
+    paymentProvider,
+    used: nextUsed,
+    limit,
+    remaining: unlimited ? null : Math.max(0, limit - nextUsed),
+    unlimited,
+  };
 }
