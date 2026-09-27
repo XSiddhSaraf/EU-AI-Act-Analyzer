@@ -1,11 +1,13 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { accountPlans, usageEvents } from "../../../db/schema";
-import { FREE_CHECK_LIMIT, anonCookieHeader, resolveSubject } from "../../lib/usage";
+import { usageEvents } from "../../../db/schema";
+import { PLAN_LIMITS, resolvePlanContext, startOfCurrentUtcMonthIso } from "../../lib/plans";
+import { anonCookieHeader, resolveSubject } from "../../lib/usage";
 
 /**
  * Reports current usage without consuming a check. Used on page load to
- * render the usage meter.
+ * render the usage meter. Usage is scoped to the current calendar month
+ * (UTC) — see app/lib/plans.ts.
  */
 export async function GET() {
   const { subject, anonId, needsCookie, isAuthenticated } = await resolveSubject();
@@ -14,29 +16,28 @@ export async function GET() {
   let plan = "free";
   let paymentProvider = "";
   let bonusChecks = 0;
+  let unlimited = false;
+  let limit = PLAN_LIMITS.free.monthlyChecks;
   let degraded = false;
 
   try {
     const db = await getDb();
+    const planContext = await resolvePlanContext(subject);
+    plan = planContext.plan;
+    // Tells the client whether "Manage billing" should open the Stripe
+    // portal or offer a direct cancel action (Razorpay has no portal).
+    paymentProvider = planContext.paymentProvider;
+    // One-time-purchased checks (see app/api/one-time/*), stacked on top of
+    // the plan's monthly limit regardless of plan.
+    bonusChecks = planContext.bonusChecks;
+    unlimited = planContext.unlimited;
+    limit = planContext.monthlyLimit + bonusChecks;
 
     const usedRows = await db
       .select({ value: sql<number>`count(*)` })
       .from(usageEvents)
-      .where(eq(usageEvents.subject, subject));
+      .where(and(eq(usageEvents.subject, subject), gte(usageEvents.createdAt, startOfCurrentUtcMonthIso())));
     used = Number(usedRows[0]?.value ?? 0);
-
-    const planRows: (typeof accountPlans.$inferSelect)[] = await db
-      .select()
-      .from(accountPlans)
-      .where(eq(accountPlans.subject, subject))
-      .limit(1);
-    plan = planRows[0]?.plan ?? "free";
-    // Tells the client whether "Manage billing" should open the Stripe
-    // portal or offer a direct cancel action (Razorpay has no portal).
-    paymentProvider = planRows[0]?.paymentProvider ?? "";
-    // One-time-purchased checks (see app/api/one-time/*), stacked on top of
-    // FREE_CHECK_LIMIT regardless of plan.
-    bonusChecks = planRows[0]?.bonusChecks ?? 0;
   } catch {
     // Metering table not provisioned yet in this environment (e.g. before
     // the first deploy applies the generated D1 migration). Degrade
@@ -44,8 +45,6 @@ export async function GET() {
     degraded = true;
   }
 
-  const unlimited = plan !== "free";
-  const limit = FREE_CHECK_LIMIT + bonusChecks;
   const remaining = unlimited ? null : Math.max(0, limit - used);
 
   const response = Response.json({

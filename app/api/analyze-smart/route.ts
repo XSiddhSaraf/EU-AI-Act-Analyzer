@@ -1,6 +1,12 @@
+import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { z } from "zod";
+import { getDb } from "../../../db";
+import { accountPlans, checkReports } from "../../../db/schema";
+import { extractBearerToken, resolveSubjectFromApiKey } from "../../lib/api-keys";
 import { getKnowledgeBaseContext } from "../../lib/knowledge-base";
+import { resolvePlanContext } from "../../lib/plans";
+import { resolveSubject } from "../../lib/usage";
 import { sourcesForFrameworks, type FrameworkId } from "../../lib/regulatory-sources";
 
 // gpt-4o-mini is the strongest fit for this workload: it's cheap/fast and,
@@ -71,6 +77,33 @@ const openAiResponseSchema = z.object({
 
 function isFrameworkId(value: string): value is FrameworkId {
   return (FRAMEWORK_IDS as string[]).includes(value);
+}
+
+/**
+ * Strips a full analysis down to "score + top gaps" for the Free tier: each
+ * framework keeps only its highest-priority not-present findings (falling
+ * back to the first findings if everything is present), and risk/official-
+ * source detail — both Pro+ differentiators — are dropped entirely. The
+ * full (untruncated) result is still what gets persisted for Full Report
+ * one-off purchases; this only shapes the free-tier HTTP response.
+ */
+function truncateForFreeTier(result: SmartAnalysisResponse): SmartAnalysisResponse {
+  const MAX_GAPS = 3;
+  const frameworkScores = Object.fromEntries(
+    Object.entries(result.frameworkScores).map(([frameworkId, score]) => {
+      const gaps = score.findings.filter((f) => !f.present);
+      const findings = (gaps.length > 0 ? gaps : score.findings).slice(0, MAX_GAPS);
+      return [frameworkId, { ...score, findings }];
+    }),
+  );
+  return {
+    readiness: result.readiness,
+    verdict: result.verdict,
+    frameworkScores,
+    risks: [],
+    officialMatches: {},
+    officialConfidence: result.officialConfidence,
+  };
 }
 
 function toRecordResponse(parsed: z.infer<typeof openAiResponseSchema>): SmartAnalysisResponse {
@@ -212,10 +245,39 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, reason: "Smart analysis is not configured on this deployment." });
   }
 
+  // Identity: an Agency API key (Authorization: Bearer <key>) takes
+  // precedence over the usual cookie/session subject, so programmatic
+  // callers don't need a browser session.
+  const bearerToken = extractBearerToken(request);
+  let subject: string;
+  if (bearerToken) {
+    const apiKeySubject = await resolveSubjectFromApiKey(bearerToken);
+    if (!apiKeySubject) {
+      return Response.json({ ok: false, reason: "Invalid or revoked API key." });
+    }
+    subject = apiKeySubject;
+  } else {
+    subject = (await resolveSubject()).subject;
+  }
+
+  const planContext = await resolvePlanContext(subject);
+  if (bearerToken && planContext.plan !== "agency") {
+    return Response.json({ ok: false, reason: "API access requires an Agency plan." });
+  }
+
+  const isFullReportRun = planContext.pendingFullReports > 0;
+
   const selectedFrameworks = (body.selectedFrameworks ?? []).filter(isFrameworkId);
-  const activeFrameworks = body.includeSecurity
+  const requestedFrameworks = body.includeSecurity
     ? Array.from(new Set([...selectedFrameworks, "soc2" as FrameworkId]))
     : selectedFrameworks;
+  // Full Report one-offs always unlock all 6 frameworks regardless of the
+  // buyer's regular plan; otherwise cap at the plan's per-check limit (e.g.
+  // Free is limited to 1 framework per check) — enforced here, not just in
+  // the UI, so it can't be bypassed via a direct API call.
+  const activeFrameworks = isFullReportRun
+    ? FRAMEWORK_IDS
+    : requestedFrameworks.slice(0, planContext.limits.maxFrameworksPerCheck);
 
   if (activeFrameworks.length === 0) {
     return Response.json({ ok: false, reason: "No frameworks selected." });
@@ -285,11 +347,52 @@ export async function POST(request: Request) {
     const parsed = openAiResponseSchema.parse(JSON.parse(text));
     const result = toRecordResponse(parsed);
 
+    // Check history / export (Pro/Team/Agency, or any Full Report one-off
+    // regardless of the buyer's regular plan) persists the *full* result —
+    // truncation below only shapes what's returned over HTTP to Free tier.
+    let reportId: number | null = null;
+    if (planContext.limits.history || isFullReportRun) {
+      try {
+        const db = await getDb();
+        const label = (url || documentText).slice(0, 200);
+        const inserted: { id: number }[] = await db
+          .insert(checkReports)
+          .values({
+            subject,
+            label,
+            resultJson: JSON.stringify(result),
+            readiness: Math.round(result.readiness),
+            verdict: result.verdict,
+          })
+          .returning({ id: checkReports.id });
+        reportId = inserted[0]?.id ?? null;
+      } catch {
+        // History is a convenience feature — never fail the check over it.
+      }
+    }
+
+    if (isFullReportRun) {
+      try {
+        const db = await getDb();
+        await db
+          .update(accountPlans)
+          .set({ pendingFullReports: sql`max(${accountPlans.pendingFullReports} - 1, 0)` })
+          .where(eq(accountPlans.subject, subject));
+      } catch {
+        // Best-effort decrement — worst case a buyer gets one extra run.
+      }
+    }
+
+    const responseBody = planContext.plan === "free" && !isFullReportRun ? truncateForFreeTier(result) : result;
+
     return Response.json({
       ok: true,
-      ...result,
+      ...responseBody,
       knowledgeBaseUpdatedAt: knowledgeBase.updatedAt,
       cacheReadTokens: response.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+      plan: planContext.plan,
+      fullReport: isFullReportRun,
+      reportId,
     });
   } catch (error) {
     if (error instanceof OpenAI.AuthenticationError) {

@@ -2,6 +2,7 @@ import Razorpay from "razorpay";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { accountPlans } from "../../../../db/schema";
+import { isPlanId } from "../../../lib/plans";
 
 type RazorpaySubscriptionEntity = {
   id: string;
@@ -62,12 +63,17 @@ export async function POST(request: Request) {
 
     if (body.event === "subscription.activated" || body.event === "subscription.charged") {
       if (typeof subject === "string") {
+        const notePlan = subscription.notes?.plan;
+        const plan = typeof notePlan === "string" && isPlanId(notePlan) && notePlan !== "free" ? notePlan : "pro";
+        const noteInterval = subscription.notes?.interval;
+        const billingInterval = noteInterval === "yearly" ? "yearly" : "monthly";
         const now = new Date().toISOString();
         await db
           .insert(accountPlans)
           .values({
             subject,
-            plan: "pro",
+            plan,
+            billingInterval,
             paymentProvider: "razorpay",
             razorpaySubscriptionId: subscription.id,
             updatedAt: now,
@@ -75,7 +81,8 @@ export async function POST(request: Request) {
           .onConflictDoUpdate({
             target: accountPlans.subject,
             set: {
-              plan: "pro",
+              plan,
+              billingInterval,
               paymentProvider: "razorpay",
               razorpaySubscriptionId: subscription.id,
               updatedAt: now,
