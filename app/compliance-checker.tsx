@@ -13,7 +13,7 @@ import { sourcesForFrameworks, type FrameworkId } from "./lib/regulatory-sources
 type Severity = "Critical" | "High" | "Medium" | "Low";
 type PlanId = "free" | "pro" | "team" | "agency";
 type UsageState = { plan: PlanId | string; paymentProvider: string; used: number; limit: number; remaining: number | null; unlimited: boolean; degraded: boolean };
-type UsageResponse = Partial<{ allowed: boolean; plan: string; paymentProvider: string; used: number; limit: number; remaining: number | null; unlimited: boolean; degraded: boolean; reason: string }>;
+type UsageResponse = Partial<{ allowed: boolean; plan: string; paymentProvider: string; used: number; limit: number; remaining: number | null; unlimited: boolean; degraded: boolean; reason: string; checkTicket: string }>;
 type AuthState = { status: "loading" | "signed-out" | "signed-in"; email: string | null; name: string | null };
 type SessionResponse = Partial<{ user: Partial<{ email: string | null; name: string | null }> }>;
 type SmartAnalysisSuccess = {
@@ -398,10 +398,10 @@ export function ComplianceChecker() {
     const reader = new FileReader(); reader.onload = () => setDocumentText(String(reader.result ?? "")); reader.readAsText(file);
   }
 
-  async function runSmartAnalysis(text: string, analysisUrl: string, active: FrameworkId[]) {
+  async function runSmartAnalysis(text: string, analysisUrl: string, active: FrameworkId[], checkTicket: string | undefined) {
     setSmartStatus("loading"); setSmartResult(null); setLastReportId(null);
     try {
-      const res = await fetch("/api/analyze-smart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text, url: analysisUrl, selectedFrameworks: active, includeSecurity: false }) });
+      const res = await fetch("/api/analyze-smart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentText: text, url: analysisUrl, selectedFrameworks: active, includeSecurity: false, checkTicket }) });
       const p = (await res.json()) as SmartAnalysisApiResponse;
       if (p.ok) { setSmartResult(p); setSmartStatus("success"); setLastReportId(p.reportId ?? null); } else { setSmartStatus("unavailable"); setSmartReason(p.reason ?? "AI-powered analysis unavailable for this run."); }
     } catch { setSmartStatus("unavailable"); setSmartReason("AI-powered analysis unavailable for this run."); }
@@ -440,7 +440,7 @@ export function ComplianceChecker() {
     setExpanded(selected[0] ?? null);
     await new Promise((r) => setTimeout(r, 450)); setStage(2);
     await new Promise((r) => setTimeout(r, 450)); setStage(3);
-    void runSmartAnalysis(mode === "website" ? websiteText : trimmedDoc, mode === "website" ? trimmedUrl : "", selected);
+    void runSmartAnalysis(mode === "website" ? websiteText : trimmedDoc, mode === "website" ? trimmedUrl : "", selected, gate.checkTicket);
     await new Promise((r) => setTimeout(r, 500));
     setStep("results");
   }

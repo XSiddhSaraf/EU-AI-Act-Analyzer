@@ -4,8 +4,10 @@ import { z } from "zod";
 import { getDb } from "../../../db";
 import { accountPlans, checkReports } from "../../../db/schema";
 import { extractBearerToken, resolveSubjectFromApiKey } from "../../lib/api-keys";
+import { consumeCheckTicket } from "../../lib/check-tickets";
 import { getKnowledgeBaseContext } from "../../lib/knowledge-base";
-import { resolvePlanContext } from "../../lib/plans";
+import { consumeUsageUnit, resolvePlanContext } from "../../lib/plans";
+import { isRateLimited } from "../../lib/rate-limit";
 import { resolveSubject } from "../../lib/usage";
 import { sourcesForFrameworks, type FrameworkId } from "../../lib/regulatory-sources";
 
@@ -233,6 +235,7 @@ export async function POST(request: Request) {
     url?: string;
     selectedFrameworks?: string[];
     includeSecurity?: boolean;
+    checkTicket?: string;
   };
   try {
     body = await request.json();
@@ -263,6 +266,24 @@ export async function POST(request: Request) {
   const planContext = await resolvePlanContext(subject);
   if (bearerToken && planContext.plan !== "agency") {
     return Response.json({ ok: false, reason: "API access requires an Agency plan." });
+  }
+
+  if (bearerToken) {
+    // The Agency API path has no separate /api/usage/consume step of its
+    // own, so both the rate limit and the monthly quota must be enforced
+    // right here — otherwise programmatic access would have no cap at all.
+    if (isRateLimited(subject)) {
+      return Response.json({ ok: false, reason: "Rate limited — try again shortly." });
+    }
+    const gate = await consumeUsageUnit(subject, "api", (body.url || body.documentText || "api").slice(0, 200));
+    if (!gate.allowed) {
+      return Response.json({ ok: false, reason: "Monthly check limit reached for this plan." });
+    }
+  } else if (!consumeCheckTicket(body.checkTicket, subject)) {
+    // Browser flow: requires the one-shot ticket issued by a prior
+    // successful POST /api/usage/consume call, so one consumed quota unit
+    // can trigger at most one AI analysis.
+    return Response.json({ ok: false, reason: "This check has already been analyzed, or it expired. Run the check again." });
   }
 
   const isFullReportRun = planContext.pendingFullReports > 0;
