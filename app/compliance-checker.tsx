@@ -759,7 +759,7 @@ export function ComplianceChecker() {
                 <p style={{ margin: 0, fontSize: 40, letterSpacing: "-.04em", fontWeight: 600, lineHeight: 1 }}>$19<span style={{ fontSize: 14, letterSpacing: 0, fontWeight: 400, opacity: 0.8 }}> one-off</span></p>
                 <p style={{ margin: 0, fontSize: 12, opacity: 0.75 }}>~₹799 (India)</p>
                 <p style={{ margin: "8px 0 12px", fontSize: 13, opacity: 0.85 }}>One full check, all 6 frameworks · complete evidence map + fix list · branded PDF</p>
-                <button type="button" className="gc-btn-outline" onClick={handleBuyFullReport} disabled={fullReportStatus === "loading"} style={{ ...pill("outline", "md"), color: "#fff", borderColor: "rgba(255,255,255,.4)", marginTop: "auto" }}>{fullReportStatus === "loading" ? "Starting…" : auth.status === "signed-in" ? "Buy Full Report" : "Sign in and upgrade"}</button>
+                <button type="button" className="gc-btn-outline gc-btn-outline-on-dark" onClick={handleBuyFullReport} disabled={fullReportStatus === "loading"} style={{ ...pill("outline", "md"), color: "#fff", borderColor: "rgba(255,255,255,.4)", marginTop: "auto" }}>{fullReportStatus === "loading" ? "Starting…" : auth.status === "signed-in" ? "Buy Full Report" : "Sign in and upgrade"}</button>
               </div>
 
               {PRICING_TIERS.map((tier) => {
@@ -779,7 +779,7 @@ export function ComplianceChecker() {
                       {isCurrent ? (
                         <span style={{ fontSize: 12, fontFamily: MONO, opacity: 0.8 }}>Current plan</span>
                       ) : (
-                        <button type="button" className="gc-btn-outline" onClick={() => handleUpgradeClick(tier.id)} disabled={checkoutStatus === "loading"} style={{ ...pill("outline", "md"), color: "#fff", borderColor: "rgba(255,255,255,.4)" }}>{checkoutStatus === "loading" ? "Starting checkout…" : auth.status === "signed-in" ? UPGRADE_LABELS[tier.id] : "Sign in and upgrade"}</button>
+                        <button type="button" className="gc-btn-outline gc-btn-outline-on-dark" onClick={() => handleUpgradeClick(tier.id)} disabled={checkoutStatus === "loading"} style={{ ...pill("outline", "md"), color: "#fff", borderColor: "rgba(255,255,255,.4)" }}>{checkoutStatus === "loading" ? "Starting checkout…" : auth.status === "signed-in" ? UPGRADE_LABELS[tier.id] : "Sign in and upgrade"}</button>
                       )}
                     </div>
                   </div>
