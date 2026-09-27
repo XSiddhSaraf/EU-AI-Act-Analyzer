@@ -775,7 +775,7 @@ export function ComplianceChecker() {
                         {tier.comingSoon.map((f) => <li key={f} style={{ fontSize: 11, opacity: 0.7 }}>• {f} (coming soon)</li>)}
                       </ul>
                     )}
-                    <div style={{ marginTop: 12 }}>
+                    <div style={{ marginTop: "auto" }}>
                       {isCurrent ? (
                         <span style={{ fontSize: 12, fontFamily: MONO, opacity: 0.8 }}>Current plan</span>
                       ) : (
