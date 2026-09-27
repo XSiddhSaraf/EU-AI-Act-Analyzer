@@ -37,6 +37,11 @@ button, input, textarea { color: inherit; font: inherit; }
 /* hover states for pill buttons */
 .gc-btn-solid:hover:not(:disabled) { background: var(--blue-dark) !important; color: #fff !important; }
 .gc-btn-outline:hover { border-color: var(--ink) !important; color: var(--ink) !important; }
+/* Outline buttons placed on dark/blue card backgrounds (pricing modal) —
+   the default hover above forces dark ink text, which disappears against
+   those backgrounds. Add this class alongside gc-btn-outline to keep the
+   hover state legible instead. */
+.gc-btn-outline-on-dark:hover { border-color: #fff !important; color: #fff !important; background: rgba(255,255,255,.12) !important; }
 .gc-faq:hover { color: var(--blue) !important; }
 header nav a:hover { color: var(--blue); }
 
