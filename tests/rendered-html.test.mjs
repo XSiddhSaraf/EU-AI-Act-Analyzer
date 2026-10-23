@@ -305,6 +305,75 @@ test("Agency API keys and white-label branding are wired end to end", async () =
   assert.match(checker, /White-label branding/);
 });
 
+test("security response headers (CSP, HSTS, etc.) are configured and apply to every route including /", async () => {
+  const nextConfig = await readFile(new URL("next.config.ts", root), "utf8");
+
+  assert.match(nextConfig, /Content-Security-Policy/);
+  assert.match(nextConfig, /Strict-Transport-Security/);
+  assert.match(nextConfig, /X-Content-Type-Options/);
+  assert.match(nextConfig, /X-Frame-Options/);
+  assert.match(nextConfig, /Referrer-Policy/);
+  assert.match(nextConfig, /Permissions-Policy/);
+  assert.match(nextConfig, /frame-ancestors 'none'/);
+  // Razorpay Checkout is loaded client-side (compliance-checker.tsx) and
+  // needs its script/frame/connect hosts allowed, or payment breaks.
+  assert.match(nextConfig, /\*\.razorpay\.com/);
+  // Regression guard: vinext's header-source matcher does not treat ":path*"
+  // as a true catch-all (it fails to match the bare "/" root path — verified
+  // locally against a running server), so the source must use an explicit
+  // "(.*)" capture group instead of "/:path*" to cover every route.
+  assert.match(nextConfig, /source:\s*"\/\(\.\*\)"/, "header source must match \"/\" too, not just sub-paths");
+  assert.doesNotMatch(nextConfig, /source:\s*"\/:path\*"/, "this vinext-broken catch-all pattern must not be reintroduced");
+});
+
+test("GDPR data subject rights (privacy policy, cookie notice, export, delete) are wired end to end", async () => {
+  const [privacyPage, layout, cookieConsent, exportRoute, deleteRoute, checker] = await Promise.all([
+    readFile(new URL("app/privacy/page.tsx", root), "utf8"),
+    readFile(new URL("app/layout.tsx", root), "utf8"),
+    readFile(new URL("app/components/cookie-consent.tsx", root), "utf8"),
+    readFile(new URL("app/api/account/export/route.ts", root), "utf8"),
+    readFile(new URL("app/api/account/delete/route.ts", root), "utf8"),
+    readFile(new URL("app/compliance-checker.tsx", root), "utf8"),
+  ]);
+
+  // Privacy policy page: generic but accurate content, not legal advice.
+  assert.match(privacyPage, /Privacy Policy/);
+  assert.match(privacyPage, /agc_uid/, "must disclose the real anon cookie, not a generic placeholder");
+  assert.match(privacyPage, /Not legal advice/i, "must carry the same disclaimer convention as the rest of the app");
+  assert.match(privacyPage, /Export my data/);
+  assert.match(privacyPage, /Delete my account/);
+
+  // Cookie notice banner is mounted site-wide via the root layout.
+  assert.match(layout, /CookieConsent/);
+  assert.match(cookieConsent, /localStorage/, "dismissal must not itself require setting another cookie");
+  assert.match(cookieConsent, /\/privacy/);
+
+  // Data export: requires sign-in, scoped to the signed-in subject only.
+  assert.match(exportRoute, /getCurrentUser/, "export must require sign-in");
+  assert.match(exportRoute, /status: 401/, "must reject anonymous callers");
+  assert.match(exportRoute, /eq\(accountPlans\.subject, subject\)/, "must be scoped to the caller's own subject");
+  assert.match(exportRoute, /eq\(usageEvents\.subject, subject\)/);
+  assert.match(exportRoute, /eq\(checkReports\.subject, subject\)/);
+  assert.match(exportRoute, /eq\(apiKeys\.subject, subject\)/);
+  assert.doesNotMatch(exportRoute, /keyHash/, "raw API key hashes must never be included in the export");
+
+  // Data deletion: requires sign-in, cancels billing first, scoped to the
+  // signed-in subject only, across every table that stores subject rows.
+  assert.match(deleteRoute, /getCurrentUser/, "delete must require sign-in");
+  assert.match(deleteRoute, /status: 401/, "must reject anonymous callers");
+  assert.match(deleteRoute, /subscriptions\.cancel/, "must cancel an active subscription before deleting the account");
+  assert.match(deleteRoute, /db\.delete\(apiKeys\)\.where\(eq\(apiKeys\.subject, subject\)\)/);
+  assert.match(deleteRoute, /db\.delete\(checkReports\)\.where\(eq\(checkReports\.subject, subject\)\)/);
+  assert.match(deleteRoute, /db\.delete\(usageEvents\)\.where\(eq\(usageEvents\.subject, subject\)\)/);
+  assert.match(deleteRoute, /db\.delete\(accountPlans\)\.where\(eq\(accountPlans\.subject, subject\)\)/);
+
+  // UI wiring: footer links to the privacy page and signed-in account actions.
+  assert.match(checker, /\/privacy/);
+  assert.match(checker, /\/api\/account\/export/);
+  assert.match(checker, /\/api\/account\/delete/);
+  assert.match(checker, /handleDeleteAccount/);
+});
+
 test("margin-protection limits (size caps, rate limit, one AI analysis per check) are wired end to end", async () => {
   const [extractRoute, fetchRoute, consumeRoute, analyzeRoute, rateLimitLib, ticketsLib, checker] = await Promise.all([
     readFile(new URL("app/api/extract-document/route.ts", root), "utf8"),

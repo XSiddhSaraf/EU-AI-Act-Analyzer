@@ -361,6 +361,15 @@ export function ComplianceChecker() {
     } catch { setBrandingStatus("idle"); }
   }
 
+  async function handleDeleteAccount() {
+    if (!window.confirm("Permanently delete your account and all data? This cancels any active subscription and cannot be undone.")) return;
+    try {
+      const p = (await (await fetch("/api/account/delete", { method: "POST" })).json()) as { ok?: boolean; reason?: string };
+      if (p.ok) { window.location.href = SIGN_OUT_HREF; return; }
+      setBillingMessage(p.reason ?? "Could not delete your account right now.");
+    } catch { setBillingMessage("Could not delete your account right now."); }
+  }
+
   async function handleManageBilling() {
     setBillingMessage("");
     if (usage?.paymentProvider === "razorpay") {
@@ -720,11 +729,13 @@ export function ComplianceChecker() {
       </section>
       <footer style={{ marginTop: 80, background: BLUE, color: "#fff", padding: `56px ${gutter} 32px`, overflow: "hidden" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 32, marginBottom: 64, fontSize: 14 }}>
-          {[["Navigation", [["Checker", "#check"], ["Why", "#why"], ["Frameworks", "#frameworks"], ["FAQ", "#faq"]]], ["Sources", [["EUR-Lex", "https://eur-lex.europa.eu"], ["NIST", "https://www.nist.gov"], ["ISO", "https://www.iso.org"], ["OECD", "https://www.oecd.org"]]]].map(([h, links]) => (
+          {[["Navigation", [["Checker", "#check"], ["Why", "#why"], ["Frameworks", "#frameworks"], ["FAQ", "#faq"], ["Privacy", "/privacy"]]], ["Sources", [["EUR-Lex", "https://eur-lex.europa.eu"], ["NIST", "https://www.nist.gov"], ["ISO", "https://www.iso.org"], ["OECD", "https://www.oecd.org"]]]].map(([h, links]) => (
             <div key={h as string}><p style={{ margin: "0 0 12px", fontFamily: MONO, fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", opacity: 0.7 }}>{h as string}</p><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{(links as string[][]).map(([l, href]) => <a key={l} href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" style={{ color: "#fff", textDecoration: "none" }}>{l}</a>)}</div></div>
           ))}
           <div><p style={{ margin: "0 0 12px", fontFamily: MONO, fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", opacity: 0.7 }}>Account</p><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {auth.status === "signed-in" ? <a href={SIGN_OUT_HREF} style={{ color: "#fff", textDecoration: "none" }}>Sign out</a> : <a href={SIGN_IN_HREF} style={{ color: "#fff", textDecoration: "none" }}>Sign in with Google or Microsoft</a>}
+            {auth.status === "signed-in" && <a href="/api/account/export" style={{ color: "#fff", textDecoration: "none" }}>Export my data</a>}
+            {auth.status === "signed-in" && <button type="button" onClick={handleDeleteAccount} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left", font: "inherit", color: "#fff", textDecoration: "none" }}>Delete my account</button>}
             <a href={CONTACT_SALES_URL} style={{ color: "#fff", textDecoration: "none" }}>Contact</a><span style={{ opacity: 0.7 }}>Not legal advice</span></div></div>
         </div>
         <p aria-hidden="true" style={{ margin: 0, fontSize: "clamp(80px,18vw,260px)", lineHeight: 0.8, letterSpacing: "-.06em", fontWeight: 700, whiteSpace: "nowrap", opacity: 0.95 }}>GovCheck</p>
