@@ -306,7 +306,10 @@ test("Agency API keys and white-label branding are wired end to end", async () =
 });
 
 test("security response headers (CSP, HSTS, etc.) are configured and apply to every route including /", async () => {
-  const nextConfig = await readFile(new URL("next.config.ts", root), "utf8");
+  const [nextConfig, heroScript] = await Promise.all([
+    readFile(new URL("next.config.ts", root), "utf8"),
+    readFile(new URL("public/hero-3d.js", root), "utf8"),
+  ]);
 
   assert.match(nextConfig, /Content-Security-Policy/);
   assert.match(nextConfig, /Strict-Transport-Security/);
@@ -324,6 +327,31 @@ test("security response headers (CSP, HSTS, etc.) are configured and apply to ev
   // "(.*)" capture group instead of "/:path*" to cover every route.
   assert.match(nextConfig, /source:\s*"\/\(\.\*\)"/, "header source must match \"/\" too, not just sub-paths");
   assert.doesNotMatch(nextConfig, /source:\s*"\/:path\*"/, "this vinext-broken catch-all pattern must not be reintroduced");
+
+  // Regression guard: the homepage hero animation (public/hero-3d.js)
+  // dynamically imports three.js from a CDN. If the CSP script-src doesn't
+  // allow that host, the browser silently drops the import (no thrown
+  // error) and the hero falls back to its static gradient background with
+  // no visible sign of what broke it. Extract the host straight from the
+  // hero script's import URL so this test keeps itself honest if that CDN
+  // ever changes, rather than hardcoding "jsdelivr" in two places.
+  //
+  // next.config.ts builds its CSP from named constants interpolated into a
+  // template literal (e.g. `script-src ... ${JSDELIVR}`), not a literal
+  // domain string next to "script-src" — so this resolves the constant that
+  // defines the host, then confirms that constant's name is actually
+  // interpolated into the script-src directive, rather than just defined
+  // and unused.
+  const [, heroScriptHost] = heroScript.match(/THREE_URL\s*=\s*'https:\/\/([^/']+)/) ?? [];
+  assert.ok(heroScriptHost, "could not find the three.js CDN host in public/hero-3d.js");
+  const escapedHost = heroScriptHost.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const constMatch = nextConfig.match(new RegExp(`const (\\w+)\\s*=\\s*"https://[^"]*${escapedHost}[^"]*"`));
+  assert.ok(constMatch, `next.config.ts should define a CSP host constant containing ${heroScriptHost}`);
+  const scriptSrcLine = nextConfig.match(/`script-src[^`]*`/)?.[0] ?? "";
+  assert.ok(
+    scriptSrcLine.includes(`\${${constMatch[1]}}`),
+    `CSP script-src must interpolate \${${constMatch[1]}} (${heroScriptHost}) or the hero animation silently fails to load`,
+  );
 });
 
 test("GDPR data subject rights (privacy policy, cookie notice, export, delete) are wired end to end", async () => {

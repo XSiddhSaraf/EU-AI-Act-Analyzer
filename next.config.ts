@@ -8,6 +8,15 @@ import type { NextConfig } from "next";
 // navigation), so it needs no CSP entry here.
 const RAZORPAY = "https://*.razorpay.com";
 
+// public/hero-3d.js (the homepage hero animation, loaded via
+// app/components/hero-3d.tsx) dynamically `import()`s three.js from this
+// CDN at runtime. Dynamic import is subject to script-src like any other
+// script load — omitting this host doesn't throw, it just makes the browser
+// silently drop the import, so the component falls back to its static
+// gradient background with no visible error. Included in connect-src too
+// since module fetches are treated as fetch-like in some engines.
+const JSDELIVR = "https://cdn.jsdelivr.net";
+
 // Next.js App Router ships small inline bootstrap/hydration scripts and this
 // app renders plenty of inline `style={{}}` attributes, so 'unsafe-inline'
 // is required for script-src/style-src without adopting per-request nonces
@@ -17,11 +26,11 @@ const RAZORPAY = "https://*.razorpay.com";
 // anti-XSS boundary.
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' ${RAZORPAY}`,
+  `script-src 'self' 'unsafe-inline' ${RAZORPAY} ${JSDELIVR}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${RAZORPAY}`,
+  `connect-src 'self' ${RAZORPAY} ${JSDELIVR}`,
   `frame-src 'self' ${RAZORPAY}`,
   "object-src 'none'",
   "base-uri 'self'",
